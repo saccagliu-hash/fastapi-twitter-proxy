@@ -1,7 +1,6 @@
-import asyncio
+import json
 import os
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
@@ -18,10 +17,43 @@ from app.services.video_creator import create_faceless_video
 
 router = APIRouter(prefix="/api/v1", tags=["videos"])
 
-_jobs: dict[str, dict] = {}
-_executor = ThreadPoolExecutor(max_workers=2)
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+_STATE_FILE = os.path.join(OUTPUT_DIR, "_jobs.json")
+_jobs: dict[str, dict] = {}
+
+
+def _load_state():
+    if os.path.exists(_STATE_FILE):
+        try:
+            with open(_STATE_FILE) as f:
+                _jobs.update(json.load(f))
+        except Exception:
+            pass
+
+
+def _save_state():
+    try:
+        with open(_STATE_FILE, "w") as f:
+            json.dump(_jobs, f)
+    except Exception:
+        pass
+
+
+def _job_from_disk(video_id: str) -> dict | None:
+    """Ricostruisce il job dal file MP4 su disco se mancante in memoria."""
+    path = os.path.join(OUTPUT_DIR, f"{video_id}.mp4")
+    if os.path.exists(path):
+        return {
+            "status": VideoStatus.completed,
+            "output_path": path,
+            "download_url": f"/api/v1/videos/{video_id}/download",
+        }
+    return None
+
+
+_load_state()
 
 
 @router.post("/videos/generate", response_model=VideoResponse, status_code=202)
@@ -35,12 +67,14 @@ async def generate_video(request: VideoRequest, background_tasks: BackgroundTask
     """
     job_id = str(uuid.uuid4())
     _jobs[job_id] = {"status": VideoStatus.pending}
+    _save_state()
     background_tasks.add_task(_run_generation, job_id, request)
     return VideoResponse(video_id=job_id, status=VideoStatus.pending)
 
 
 async def _run_generation(job_id: str, request: VideoRequest):
     _jobs[job_id]["status"] = VideoStatus.processing
+    _save_state()
     result = await create_faceless_video(
         topic=request.topic,
         script=request.script,
@@ -61,12 +95,13 @@ async def _run_generation(job_id: str, request: VideoRequest):
         )
     else:
         _jobs[job_id].update({"status": VideoStatus.failed, "error": result.get("error")})
+    _save_state()
 
 
 @router.get("/videos/{video_id}/status", response_model=VideoResponse)
 async def get_status(video_id: str):
     """Controlla lo stato di generazione del video."""
-    job = _jobs.get(video_id)
+    job = _jobs.get(video_id) or _job_from_disk(video_id)
     if not job:
         raise HTTPException(status_code=404, detail="Video non trovato")
     return VideoResponse(
@@ -81,7 +116,7 @@ async def get_status(video_id: str):
 @router.get("/videos/{video_id}/download")
 async def download_video(video_id: str):
     """Scarica il video MP4 completato."""
-    job = _jobs.get(video_id)
+    job = _jobs.get(video_id) or _job_from_disk(video_id)
     if not job:
         raise HTTPException(status_code=404, detail="Video non trovato")
     if job["status"] != VideoStatus.completed:
