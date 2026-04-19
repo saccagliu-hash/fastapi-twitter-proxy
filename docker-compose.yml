@@ -1,0 +1,12 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./output:/app/output
+    environment:
+      - PEXELS_API_KEY=${PEXELS_API_KEY:-}
+      - DEFAULT_VOICE=${DEFAULT_VOICE:-it-IT-IsabellaNeural}
+      - OUTPUT_DIR=output
+    restart: unless-stopped
