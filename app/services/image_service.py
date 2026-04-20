@@ -1,6 +1,7 @@
+import io
+import logging
 import os
 import textwrap
-import urllib.request
 from typing import Optional
 
 import requests
@@ -82,23 +83,43 @@ def _fetch_pexels(query: str, api_key: str, output_path: str, offset: int) -> bo
             "https://api.pexels.com/v1/search",
             headers={"Authorization": api_key},
             params={"query": query, "per_page": 15, "page": (offset // 15) + 1},
-            timeout=12,
+            timeout=15,
         )
+        logging.info("Pexels [%s] status=%s", query, resp.status_code)
         if resp.status_code != 200:
+            logging.warning("Pexels error body: %s", resp.text[:200])
             return False
         photos = resp.json().get("photos", [])
         if not photos:
+            logging.warning("Pexels: nessuna foto per query '%s'", query)
             return False
         photo = photos[offset % len(photos)]
-        urllib.request.urlretrieve(photo["src"]["landscape"], output_path)
-        with Image.open(output_path) as raw:
+        img_url = photo["src"].get("large") or photo["src"].get("original")
+        img_resp = requests.get(img_url, timeout=20)
+        img_resp.raise_for_status()
+        with Image.open(io.BytesIO(img_resp.content)) as raw:
             raw = raw.convert("RGB")
             raw = _crop_to_16_9(raw)
             raw = raw.resize((WIDTH, HEIGHT), Image.LANCZOS)
             raw.save(output_path, "JPEG", quality=92)
         return True
-    except Exception:
+    except Exception as exc:
+        logging.warning("Pexels fetch fallito per '%s': %s", query, exc)
         return False
+
+
+def test_pexels(api_key: str) -> dict:
+    """Testa la connessione Pexels — usato dall'endpoint /api/v1/test-pexels."""
+    try:
+        resp = requests.get(
+            "https://api.pexels.com/v1/search",
+            headers={"Authorization": api_key},
+            params={"query": "nature", "per_page": 1},
+            timeout=10,
+        )
+        return {"status_code": resp.status_code, "ok": resp.status_code == 200, "body": resp.json()}
+    except Exception as exc:
+        return {"status_code": None, "ok": False, "error": str(exc)}
 
 
 def _add_subtitle_bar(img: Image.Image, text: str) -> Image.Image:

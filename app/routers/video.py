@@ -12,6 +12,7 @@ from app.models.schemas import (
     VoiceInfo,
     VoicesResponse,
 )
+from app.services.image_service import test_pexels
 from app.services.tts import RECOMMENDED_VOICES, list_voices
 from app.services.video_creator import create_faceless_video
 
@@ -125,6 +126,13 @@ async def download_video(video_id: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File video non trovato")
     return FileResponse(path, media_type="video/mp4", filename=f"video_{video_id}.mp4")
+
+
+@router.get("/test-pexels")
+async def test_pexels_connection(api_key: str):
+    """Testa se la API key Pexels funziona correttamente."""
+    result = await asyncio.to_thread(test_pexels, api_key)
+    return result
 
 
 @router.get("/voices", response_model=VoicesResponse)
