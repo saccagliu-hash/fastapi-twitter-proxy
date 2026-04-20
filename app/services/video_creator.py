@@ -41,10 +41,11 @@ def _split_script(script: str) -> list[str]:
     return [s for s in segments if s.strip()]
 
 
-def _keywords(text: str, topic: str) -> str:
-    words = [w.lower().strip(".,!?;:") for w in text.split()]
-    keywords = [w for w in words if w not in _STOP_WORDS and len(w) > 3]
-    return f"{topic} {' '.join(keywords[:4])}"
+def _pexels_query(base_keywords: str, slide_idx: int) -> str:
+    """Query pulita per Pexels: usa le keywords base, varia per slide con un numero di pagina."""
+    # Pulisce numeri e caratteri speciali, prende le prime 3 parole
+    words = [w for w in base_keywords.split() if w.isalpha()][:3]
+    return " ".join(words) if words else "business"
 
 
 async def create_faceless_video(
@@ -53,6 +54,7 @@ async def create_faceless_video(
     voice: str,
     output_dir: str,
     pexels_api_key: Optional[str] = None,
+    image_keywords: Optional[str] = None,
     min_duration: float = 50.0,
     video_id: Optional[str] = None,
 ) -> dict:
@@ -82,9 +84,10 @@ async def create_faceless_video(
 
             # Sfondo (Pexels o gradiente)
             bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
+            base_kw = image_keywords or topic
             await asyncio.to_thread(
                 fetch_background, i, bg_path, pexels_api_key,
-                _keywords(segment, topic) if pexels_api_key else None,
+                _pexels_query(base_kw, i) if pexels_api_key else None,
             )
 
             # Sottotitoli stile YouTube baked nell'immagine

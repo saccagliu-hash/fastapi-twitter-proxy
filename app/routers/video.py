@@ -91,6 +91,7 @@ async def _run_generation(job_id: str, request: VideoRequest):
             voice=request.voice,
             output_dir=OUTPUT_DIR,
             pexels_api_key=request.pexels_api_key,
+            image_keywords=request.image_keywords,
             min_duration=request.min_duration,
             video_id=job_id,
         )

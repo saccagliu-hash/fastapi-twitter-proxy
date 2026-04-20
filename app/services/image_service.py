@@ -125,32 +125,30 @@ def fetch_background(
 
 
 def make_subtitle_overlay(text: str) -> np.ndarray:
-    """
-    Crea un overlay RGBA (WIDTH x HEIGHT) con i sottotitoli stile YouTube.
-    Testo giallo, outline nero spesso, barra scura semitrasparente in basso.
-    """
+    """Sottotitoli stile YouTube: testo giallo, outline nero, barra scura in basso."""
     overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    bar_h = 140
-    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 170))
+    bar_h = 160
+    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 175))
 
-    font = _get_font(52)
-    wrapped = textwrap.fill(text[:160], width=58)
-    lines = wrapped.split("\n")[:2]
-    line_h = 62
+    font = _get_font(46)
+    # width=40 chars → ~40*26px = 1040px max, sicuro entro 1280px con padding
+    wrapped = textwrap.fill(text[:200], width=40)
+    lines = wrapped.split("\n")[:3]
+    line_h = 56
     total_h = len(lines) * line_h
+    # Centra verticalmente nella barra
     start_y = HEIGHT - bar_h + (bar_h - total_h) // 2
 
     for i, line in enumerate(lines):
         bbox = draw.textbbox((0, 0), line, font=font)
         tw = bbox[2] - bbox[0]
-        x = (WIDTH - tw) // 2
+        # Centra orizzontalmente con clamp per sicurezza
+        x = max(40, (WIDTH - tw) // 2)
         y = start_y + i * line_h
-        # Thick black outline (8 directions)
-        for dx, dy in [(-3,0),(3,0),(0,-3),(0,3),(-2,-2),(2,-2),(-2,2),(2,2)]:
+        for dx, dy in [(-3, 0), (3, 0), (0, -3), (0, 3), (-2, -2), (2, -2), (-2, 2), (2, 2)]:
             draw.text((x + dx, y + dy), line, font=font, fill=(0, 0, 0, 255))
-        # Yellow text
         draw.text((x, y), line, font=font, fill=(255, 220, 0, 255))
 
     return np.array(overlay)
@@ -168,8 +166,8 @@ def make_intro_card(topic: str) -> np.ndarray:
     title_font = _get_font(72)
     sub_font = _get_font(36)
 
-    wrapped = textwrap.fill(topic.upper(), width=28)
-    lines = wrapped.split("\n")
+    wrapped = textwrap.fill(topic.upper(), width=20)
+    lines = wrapped.split("\n")[:4]
     line_h = 82
     total_h = len(lines) * line_h
     start_y = HEIGHT // 2 - total_h // 2

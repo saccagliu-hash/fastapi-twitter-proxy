@@ -25,6 +25,10 @@ class VideoRequest(BaseModel):
         default=None,
         description="API key Pexels per immagini di stock (opzionale)",
     )
+    image_keywords: Optional[str] = Field(
+        default=None,
+        description="Parole chiave IN INGLESE per cercare le immagini su Pexels (es: 'vending machine business'). Se non specificato usa il topic.",
+    )
     min_duration: float = Field(
         default=50.0,
         ge=10.0,
