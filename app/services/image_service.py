@@ -6,7 +6,7 @@ from typing import Optional
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
-WIDTH, HEIGHT = 1920, 1080
+WIDTH, HEIGHT = 1280, 720
 
 _GRADIENT_THEMES = [
     ((10, 10, 50), (60, 20, 120)),

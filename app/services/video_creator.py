@@ -98,11 +98,14 @@ async def create_faceless_video(
             final = final.subclip(0, min_duration)
 
         output_path = os.path.join(output_dir, f"{video_id}.mp4")
-        final.write_videofile(
+        await asyncio.to_thread(
+            final.write_videofile,
             output_path,
             fps=24,
             codec="libx264",
             audio_codec="aac",
+            preset="ultrafast",
+            ffmpeg_params=["-crf", "28"],
             temp_audiofile=os.path.join(work_dir, "temp_audio.m4a"),
             remove_temp=True,
             logger=None,
