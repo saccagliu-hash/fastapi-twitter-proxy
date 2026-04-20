@@ -30,7 +30,14 @@ def _load_state():
     if os.path.exists(_STATE_FILE):
         try:
             with open(_STATE_FILE) as f:
-                _jobs.update(json.load(f))
+                data = json.load(f)
+            # Job in processing/pending al riavvio = interrotti, segnalali come failed
+            for job in data.values():
+                if job.get("status") in (VideoStatus.processing, VideoStatus.pending,
+                                         "processing", "pending"):
+                    job["status"] = VideoStatus.failed
+                    job["error"] = "Interrotto dal riavvio del server — riprova"
+            _jobs.update(data)
         except Exception:
             pass
 
@@ -75,29 +82,31 @@ async def generate_video(request: VideoRequest, background_tasks: BackgroundTask
 
 
 async def _run_generation(job_id: str, request: VideoRequest):
-    _jobs[job_id]["status"] = VideoStatus.processing
-    _save_state()
-    result = await create_faceless_video(
-        topic=request.topic,
-        script=request.script,
-        voice=request.voice,
-        output_dir=OUTPUT_DIR,
-        pexels_api_key=request.pexels_api_key,
-        min_duration=request.min_duration,
-        video_id=job_id,
-    )
-    if result["status"] == "completed":
-        _jobs[job_id].update(
-            {
+    try:
+        _jobs[job_id]["status"] = VideoStatus.processing
+        _save_state()
+        result = await create_faceless_video(
+            topic=request.topic,
+            script=request.script,
+            voice=request.voice,
+            output_dir=OUTPUT_DIR,
+            pexels_api_key=request.pexels_api_key,
+            min_duration=request.min_duration,
+            video_id=job_id,
+        )
+        if result["status"] == "completed":
+            _jobs[job_id].update({
                 "status": VideoStatus.completed,
                 "output_path": result["output_path"],
                 "duration": result["duration"],
                 "download_url": f"/api/v1/videos/{job_id}/download",
-            }
-        )
-    else:
-        _jobs[job_id].update({"status": VideoStatus.failed, "error": result.get("error")})
-    _save_state()
+            })
+        else:
+            _jobs[job_id].update({"status": VideoStatus.failed, "error": result.get("error")})
+    except Exception as exc:
+        _jobs[job_id].update({"status": VideoStatus.failed, "error": str(exc)})
+    finally:
+        _save_state()
 
 
 @router.get("/videos/{video_id}/status", response_model=VideoResponse)
