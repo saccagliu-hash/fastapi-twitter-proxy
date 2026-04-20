@@ -18,8 +18,8 @@ class VideoRequest(BaseModel):
         min_length=50,
     )
     voice: str = Field(
-        default="it-IT-IsabellaNeural",
-        description="Voce TTS da usare (vedi GET /api/v1/voices per la lista)",
+        default="it",
+        description="Lingua della voce: 'it', 'en', 'es', 'fr', 'de' ... (vedi GET /api/v1/voices)",
     )
     pexels_api_key: Optional[str] = Field(
         default=None,
@@ -47,7 +47,7 @@ class VideoRequest(BaseModel):
                     "responsabile? Come proteggere i posti di lavoro? Queste sono le domande "
                     "che la società deve affrontare oggi."
                 ),
-                "voice": "it-IT-IsabellaNeural",
+                "voice": "it",
                 "pexels_api_key": None,
                 "min_duration": 50.0,
             }

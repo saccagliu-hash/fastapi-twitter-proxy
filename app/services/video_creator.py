@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import shutil
@@ -70,7 +71,7 @@ async def create_faceless_video(
 
         for i, segment in enumerate(segments):
             tts_path = os.path.join(work_dir, f"audio_{i}.mp3")
-            tts_duration = await generate_tts(segment, voice, tts_path)
+            tts_duration = await asyncio.to_thread(generate_tts, segment, voice, tts_path)
             clip_duration = max(tts_duration, MIN_SLIDE_DURATION)
 
             img_path = os.path.join(work_dir, f"slide_{i}.jpg")

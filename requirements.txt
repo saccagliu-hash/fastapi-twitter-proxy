@@ -1,6 +1,6 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
-edge-tts==6.1.12
+gTTS==2.5.1
 moviepy==1.0.3
 Pillow==10.4.0
 requests==2.32.3
