@@ -132,7 +132,8 @@ async def download_video(video_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Video non trovato")
     if job["status"] != VideoStatus.completed:
-        raise HTTPException(status_code=400, detail=f"Video in stato: {job['status']}")
+        status_val = job["status"].value if hasattr(job["status"], "value") else job["status"]
+        raise HTTPException(status_code=400, detail=f"Video in stato: {status_val}")
     path = job.get("output_path", "")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File video non trovato")
