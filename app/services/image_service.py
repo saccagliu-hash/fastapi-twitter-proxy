@@ -23,6 +23,7 @@ _GRADIENT_THEMES = [
 
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
     candidates = [
+        "/usr/share/fonts/truetype/roboto/Roboto-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
@@ -34,6 +35,7 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
                 return ImageFont.truetype(path, size)
             except Exception:
                 pass
+    logging.warning("Nessun font trovato, uso bitmap default (qualità bassa)")
     return ImageFont.load_default()
 
 
@@ -129,16 +131,15 @@ def make_subtitle_overlay(text: str) -> np.ndarray:
     overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    bar_h = 160
-    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 175))
+    bar_h = 200
+    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 185))
 
-    font = _get_font(46)
-    # width=40 chars → ~40*26px = 1040px max, sicuro entro 1280px con padding
-    wrapped = textwrap.fill(text[:200], width=40)
+    font = _get_font(48)
+    # width=36 chars a 48px → ~36*28px = 1008px, sicuro entro 1280px
+    wrapped = textwrap.fill(text[:250], width=36)
     lines = wrapped.split("\n")[:3]
-    line_h = 56
+    line_h = 60
     total_h = len(lines) * line_h
-    # Centra verticalmente nella barra
     start_y = HEIGHT - bar_h + (bar_h - total_h) // 2
 
     for i, line in enumerate(lines):

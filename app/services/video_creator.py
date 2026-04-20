@@ -55,6 +55,8 @@ async def create_faceless_video(
     output_dir: str,
     pexels_api_key: Optional[str] = None,
     image_keywords: Optional[str] = None,
+    elevenlabs_api_key: Optional[str] = None,
+    elevenlabs_voice_id: str = "EXAVITQu4vr4xnSDxMaL",
     min_duration: float = 50.0,
     video_id: Optional[str] = None,
 ) -> dict:
@@ -79,7 +81,10 @@ async def create_faceless_video(
         for i, segment in enumerate(segments):
             # TTS audio
             tts_path = os.path.join(work_dir, f"audio_{i}.mp3")
-            tts_duration = await asyncio.to_thread(generate_tts, segment, voice, tts_path)
+            tts_duration = await asyncio.to_thread(
+                generate_tts, segment, voice, tts_path,
+                elevenlabs_api_key, elevenlabs_voice_id,
+            )
             clip_duration = max(tts_duration, MIN_SLIDE_DURATION)
 
             # Sfondo (Pexels o gradiente)

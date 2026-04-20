@@ -29,6 +29,14 @@ class VideoRequest(BaseModel):
         default=None,
         description="Parole chiave IN INGLESE per cercare le immagini su Pexels (es: 'vending machine business'). Se non specificato usa il topic.",
     )
+    elevenlabs_api_key: Optional[str] = Field(
+        default=None,
+        description="API key ElevenLabs per voce ultra-realistica (gratis su elevenlabs.io fino a 10K char/mese)",
+    )
+    elevenlabs_voice_id: str = Field(
+        default="EXAVITQu4vr4xnSDxMaL",
+        description="Voice ID ElevenLabs. Default: Bella (ottima per italiano). Vedi elevenlabs.io/voice-library",
+    )
     min_duration: float = Field(
         default=50.0,
         ge=10.0,
