@@ -4,19 +4,20 @@ import os
 import textwrap
 from typing import Optional
 
+import numpy as np
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
 WIDTH, HEIGHT = 1280, 720
 
 _GRADIENT_THEMES = [
-    ((10, 10, 50), (60, 20, 120)),
-    ((10, 40, 10), (20, 100, 60)),
-    ((50, 10, 10), (120, 40, 20)),
-    ((10, 30, 60), (20, 70, 130)),
-    ((40, 10, 50), (90, 20, 90)),
-    ((50, 40, 10), (120, 90, 20)),
-    ((10, 40, 40), (20, 100, 100)),
+    ((8, 8, 40), (50, 15, 110)),
+    ((8, 35, 8), (15, 90, 50)),
+    ((45, 8, 8), (110, 35, 15)),
+    ((8, 25, 55), (15, 60, 120)),
+    ((35, 8, 45), (80, 15, 85)),
+    ((45, 35, 8), (110, 80, 15)),
+    ((8, 35, 35), (15, 90, 90)),
 ]
 
 
@@ -34,22 +35,6 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
             except Exception:
                 pass
     return ImageFont.load_default()
-
-
-def _draw_centered_text(draw: ImageDraw.ImageDraw, text: str, y_center: int, font: ImageFont.FreeTypeFont):
-    wrapped = textwrap.fill(text, width=48)
-    lines = wrapped.split("\n")
-    line_h = font.size + 12
-    total_h = len(lines) * line_h
-    start_y = y_center - total_h // 2
-
-    for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=font)
-        tw = bbox[2] - bbox[0]
-        x = (WIDTH - tw) // 2
-        y = start_y + i * line_h
-        draw.text((x + 3, y + 3), line, font=font, fill=(0, 0, 0))
-        draw.text((x, y), line, font=font, fill=(255, 255, 255))
 
 
 def _make_gradient(theme_idx: int) -> Image.Image:
@@ -109,7 +94,6 @@ def _fetch_pexels(query: str, api_key: str, output_path: str, offset: int) -> bo
 
 
 def test_pexels(api_key: str) -> dict:
-    """Testa la connessione Pexels — usato dall'endpoint /api/v1/test-pexels."""
     try:
         resp = requests.get(
             "https://api.pexels.com/v1/search",
@@ -122,18 +106,39 @@ def test_pexels(api_key: str) -> dict:
         return {"status_code": None, "ok": False, "error": str(exc)}
 
 
-def _add_subtitle_bar(img: Image.Image, text: str) -> Image.Image:
-    font = _get_font(46)
-    bar_h = 160
-    overlay = Image.new("RGBA", (WIDTH, bar_h), (0, 0, 0, 170))
-    base = img.convert("RGBA")
-    base.paste(overlay, (0, HEIGHT - bar_h), overlay)
-    img = base.convert("RGB")
-    draw = ImageDraw.Draw(img)
+def fetch_background(
+    theme_idx: int,
+    output_path: str,
+    pexels_api_key: Optional[str] = None,
+    search_query: Optional[str] = None,
+) -> str:
+    """Crea o scarica l'immagine di sfondo SENZA testo (il testo viene aggiunto come overlay)."""
+    fetched = False
+    if pexels_api_key and search_query:
+        fetched = _fetch_pexels(search_query, pexels_api_key, output_path, theme_idx)
 
-    wrapped = textwrap.fill(text[:180], width=72)
-    lines = wrapped.split("\n")[:3]
-    line_h = font.size + 8
+    if not fetched:
+        img = _make_gradient(theme_idx)
+        img.save(output_path, "JPEG", quality=92)
+
+    return output_path
+
+
+def make_subtitle_overlay(text: str) -> np.ndarray:
+    """
+    Crea un overlay RGBA (WIDTH x HEIGHT) con i sottotitoli stile YouTube.
+    Testo giallo, outline nero spesso, barra scura semitrasparente in basso.
+    """
+    overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    bar_h = 140
+    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 170))
+
+    font = _get_font(52)
+    wrapped = textwrap.fill(text[:160], width=58)
+    lines = wrapped.split("\n")[:2]
+    line_h = 62
     total_h = len(lines) * line_h
     start_y = HEIGHT - bar_h + (bar_h - total_h) // 2
 
@@ -142,12 +147,51 @@ def _add_subtitle_bar(img: Image.Image, text: str) -> Image.Image:
         tw = bbox[2] - bbox[0]
         x = (WIDTH - tw) // 2
         y = start_y + i * line_h
-        draw.text((x + 2, y + 2), line, font=font, fill=(0, 0, 0))
-        draw.text((x, y), line, font=font, fill=(255, 255, 255))
+        # Thick black outline (8 directions)
+        for dx, dy in [(-3,0),(3,0),(0,-3),(0,3),(-2,-2),(2,-2),(-2,2),(2,2)]:
+            draw.text((x + dx, y + dy), line, font=font, fill=(0, 0, 0, 255))
+        # Yellow text
+        draw.text((x, y), line, font=font, fill=(255, 220, 0, 255))
 
-    return img
+    return np.array(overlay)
 
 
+def make_intro_card(topic: str) -> np.ndarray:
+    """Card di apertura con il titolo del video."""
+    img = _make_gradient(0)
+    draw = ImageDraw.Draw(img)
+
+    # Linea decorativa
+    draw.rectangle([(WIDTH // 2 - 200, HEIGHT // 2 - 90), (WIDTH // 2 + 200, HEIGHT // 2 - 85)],
+                   fill=(255, 220, 0))
+
+    title_font = _get_font(72)
+    sub_font = _get_font(36)
+
+    wrapped = textwrap.fill(topic.upper(), width=28)
+    lines = wrapped.split("\n")
+    line_h = 82
+    total_h = len(lines) * line_h
+    start_y = HEIGHT // 2 - total_h // 2
+
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=title_font)
+        tw = bbox[2] - bbox[0]
+        x = (WIDTH - tw) // 2
+        y = start_y + i * line_h
+        for dx, dy in [(-3, 0), (3, 0), (0, -3), (0, 3)]:
+            draw.text((x + dx, y + dy), line, font=title_font, fill=(0, 0, 0))
+        draw.text((x, y), line, font=title_font, fill=(255, 220, 0))
+
+    # Linea decorativa in basso
+    draw.rectangle([(WIDTH // 2 - 200, HEIGHT // 2 + total_h // 2 + 10),
+                    (WIDTH // 2 + 200, HEIGHT // 2 + total_h // 2 + 15)],
+                   fill=(255, 220, 0))
+
+    return np.array(img)
+
+
+# Mantieni create_slide per compatibilità (usato nei test)
 def create_slide(
     text: str,
     theme_idx: int,
@@ -155,19 +199,4 @@ def create_slide(
     pexels_api_key: Optional[str] = None,
     search_query: Optional[str] = None,
 ) -> str:
-    fetched = False
-    if pexels_api_key and search_query:
-        fetched = _fetch_pexels(search_query, pexels_api_key, output_path, theme_idx)
-
-    if fetched:
-        with Image.open(output_path) as img:
-            img = _add_subtitle_bar(img, text)
-            img.save(output_path, "JPEG", quality=92)
-    else:
-        img = _make_gradient(theme_idx)
-        draw = ImageDraw.Draw(img)
-        font = _get_font(58)
-        _draw_centered_text(draw, text, HEIGHT // 2, font)
-        img.save(output_path, "JPEG", quality=92)
-
-    return output_path
+    return fetch_background(theme_idx, output_path, pexels_api_key, search_query)
