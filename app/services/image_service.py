@@ -191,7 +191,16 @@ def make_intro_card(topic: str) -> np.ndarray:
     return np.array(img)
 
 
-# Mantieni create_slide per compatibilità (usato nei test)
+def bake_subtitle(bg_path: str, text: str, output_path: str) -> str:
+    """Applica i sottotitoli stile YouTube su un'immagine di sfondo e salva."""
+    with Image.open(bg_path) as img:
+        img = img.convert("RGBA")
+        overlay = Image.fromarray(make_subtitle_overlay(text))
+        img = Image.alpha_composite(img, overlay).convert("RGB")
+        img.save(output_path, "JPEG", quality=92)
+    return output_path
+
+
 def create_slide(
     text: str,
     theme_idx: int,
@@ -199,4 +208,5 @@ def create_slide(
     pexels_api_key: Optional[str] = None,
     search_query: Optional[str] = None,
 ) -> str:
-    return fetch_background(theme_idx, output_path, pexels_api_key, search_query)
+    fetch_background(theme_idx, output_path, pexels_api_key, search_query)
+    return bake_subtitle(output_path, text, output_path)

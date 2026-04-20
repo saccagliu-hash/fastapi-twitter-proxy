@@ -5,28 +5,13 @@ import shutil
 import uuid
 from typing import Optional
 
-import numpy as np
-from moviepy.editor import (
-    AudioFileClip,
-    ImageClip,
-    VideoClip,
-    concatenate_videoclips,
-)
-from PIL import Image as PILImage
+from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 
-from .image_service import (
-    WIDTH,
-    HEIGHT,
-    fetch_background,
-    make_intro_card,
-    make_subtitle_overlay,
-)
+from .image_service import fetch_background, make_intro_card, bake_subtitle
 from .tts import generate_tts
 
 MIN_SLIDE_DURATION = 3.5
 WORDS_PER_SEGMENT = 22
-FADE_DURATION = 0.4
-INTRO_DURATION = 3.0
 
 _STOP_WORDS = {
     "il", "la", "lo", "le", "i", "gli", "un", "una", "uno", "e", "è",
@@ -62,42 +47,6 @@ def _keywords(text: str, topic: str) -> str:
     return f"{topic} {' '.join(keywords[:4])}"
 
 
-def _ken_burns_clip(img_path: str, duration: float, zoom_in: bool) -> VideoClip:
-    """Effetto Ken Burns: lento zoom in o out sull'immagine."""
-    pil_img = PILImage.open(img_path).convert("RGB")
-    w, h = pil_img.size
-    zoom = 0.08
-
-    def make_frame(t):
-        progress = min(t / max(duration, 0.001), 1.0)
-        scale = (1.0 + zoom * progress) if zoom_in else (1.0 + zoom * (1.0 - progress))
-        new_w, new_h = int(w * scale), int(h * scale)
-        resized = pil_img.resize((new_w, new_h), PILImage.BILINEAR)
-        left = (new_w - w) // 2
-        top = (new_h - h) // 2
-        return np.array(resized.crop((left, top, left + w, top + h)))
-
-    return VideoClip(make_frame, duration=duration).set_fps(24)
-
-
-def _apply_subtitle(clip: VideoClip, subtitle_rgba: np.ndarray) -> VideoClip:
-    """Applica l'overlay dei sottotitoli su ogni frame del clip."""
-    alpha = subtitle_rgba[:, :, 3:4].astype(np.float32) / 255.0
-    rgb = subtitle_rgba[:, :, :3].astype(np.float32)
-
-    def add_sub(frame):
-        return (frame.astype(np.float32) * (1.0 - alpha) + rgb * alpha).astype(np.uint8)
-
-    return clip.fl_image(add_sub)
-
-
-def _make_intro_clip(topic: str) -> VideoClip:
-    """Clip di apertura con il titolo."""
-    intro_arr = make_intro_card(topic)
-    clip = ImageClip(intro_arr).set_duration(INTRO_DURATION).set_fps(24)
-    return clip.crossfadeout(FADE_DURATION)
-
-
 async def create_faceless_video(
     topic: str,
     script: str,
@@ -115,48 +64,52 @@ async def create_faceless_video(
 
     try:
         segments = _split_script(script)
-        clips = [_make_intro_clip(topic)]
+        clips = []
+
+        # Intro card (3 secondi, nessun audio)
+        intro_path = os.path.join(work_dir, "intro.jpg")
+        intro_arr = make_intro_card(topic)
+        from PIL import Image as PILImage
+        PILImage.fromarray(intro_arr).save(intro_path, "JPEG", quality=92)
+        intro_clip = ImageClip(intro_path).set_duration(3.0).fadein(0.5).fadeout(0.5)
+        clips.append(intro_clip)
 
         for i, segment in enumerate(segments):
+            # TTS audio
             tts_path = os.path.join(work_dir, f"audio_{i}.mp3")
             tts_duration = await asyncio.to_thread(generate_tts, segment, voice, tts_path)
             clip_duration = max(tts_duration, MIN_SLIDE_DURATION)
 
-            img_path = os.path.join(work_dir, f"bg_{i}.jpg")
+            # Sfondo (Pexels o gradiente)
+            bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
             await asyncio.to_thread(
-                fetch_background,
-                i,
-                img_path,
-                pexels_api_key,
+                fetch_background, i, bg_path, pexels_api_key,
                 _keywords(segment, topic) if pexels_api_key else None,
             )
 
-            # Ken Burns: alterna zoom in/out
-            kb = _ken_burns_clip(img_path, clip_duration, zoom_in=(i % 2 == 0))
+            # Sottotitoli stile YouTube baked nell'immagine
+            slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
+            await asyncio.to_thread(bake_subtitle, bg_path, segment, slide_path)
 
-            # Sottotitoli stile YouTube
-            subtitle_rgba = make_subtitle_overlay(segment)
-            kb = _apply_subtitle(kb, subtitle_rgba)
-
-            # Audio TTS
             audio = AudioFileClip(tts_path)
-            kb = kb.set_audio(audio)
-
-            # Fade in/out per transizioni fluide
-            kb = kb.crossfadein(FADE_DURATION).crossfadeout(FADE_DURATION)
-
-            clips.append(kb)
+            clip = (
+                ImageClip(slide_path)
+                .set_duration(clip_duration)
+                .set_audio(audio)
+                .fadein(0.4)
+                .fadeout(0.4)
+            )
+            clips.append(clip)
 
         if len(clips) <= 1:
             return {"video_id": video_id, "status": "failed", "error": "Nessun contenuto generato"}
 
-        final = concatenate_videoclips(clips, method="compose", padding=-FADE_DURATION)
+        final = concatenate_videoclips(clips, method="compose")
 
         if final.duration < min_duration:
-            content_clips = clips[1:]  # escludi l'intro dalla ripetizione
-            repeats = int(min_duration / max(final.duration - INTRO_DURATION, 1)) + 1
-            repeated = clips + content_clips * repeats
-            final = concatenate_videoclips(repeated, method="compose", padding=-FADE_DURATION)
+            content = clips[1:]
+            repeats = int(min_duration / max(final.duration - 3.0, 1)) + 1
+            final = concatenate_videoclips(clips + content * repeats, method="compose")
             final = final.subclip(0, min_duration)
 
         output_path = os.path.join(output_dir, f"{video_id}.mp4")
