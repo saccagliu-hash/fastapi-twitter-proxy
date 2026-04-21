@@ -12,9 +12,9 @@ from moviepy.editor import AudioFileClip, ImageClip, concatenate_audioclips, con
 from .image_service import fetch_background, make_intro_card, bake_subtitle
 from .tts import generate_tts
 
-MIN_SLIDE_DURATION = 3.5
+MIN_SLIDE_DURATION = 5.5   # Secondi minimi per slide (abbastanza per leggere il testo)
 WORDS_PER_SEGMENT = 18
-MIN_SEGMENT_WORDS = 5  # Segmenti più corti vengono fusi nel precedente
+MIN_SEGMENT_WORDS = 5      # Segmenti più corti vengono fusi nel precedente
 
 INTRO_DURATION = 3.0
 CROSSFADE = 0.4
@@ -128,10 +128,18 @@ async def create_faceless_video(
             clip_durations.append(max(tts_duration, MIN_SLIDE_DURATION))
             tts_paths.append(tts_path)
 
-        # --- Step 2: traccia audio unica continua (silenzio intro + TTS concatenati) ---
-        # Una sola traccia elimina completamente i glitch ai tagli tra slide
-        tts_audio_clips = [AudioFileClip(p) for p in tts_paths]
-        full_audio = concatenate_audioclips([_silence(INTRO_DURATION)] + tts_audio_clips)
+        # --- Step 2: traccia audio unica continua con padding per-slide ---
+        # Ogni slot audio = TTS + silenzio fino alla durata della slide
+        # → durata video e audio sempre identiche, nessun taglio finale
+        padded_audio: list = [_silence(INTRO_DURATION)]
+        for i, tts_path in enumerate(tts_paths):
+            tts_clip = AudioFileClip(tts_path)
+            pad_dur = clip_durations[i] - tts_clip.duration
+            if pad_dur > 0.05:
+                padded_audio.append(concatenate_audioclips([tts_clip, _silence(pad_dur)]))
+            else:
+                padded_audio.append(tts_clip)
+        full_audio = concatenate_audioclips(padded_audio)
 
         # --- Step 3: slide video (senza audio individuale) ---
         intro_path = os.path.join(work_dir, "intro.jpg")
@@ -157,17 +165,16 @@ async def create_faceless_video(
         if len(clips) <= 1:
             return {"video_id": video_id, "status": "failed", "error": "Nessun contenuto generato"}
 
-        # --- Step 4: concatena con crossfade visuale, attacca audio continuo ---
-        final = concatenate_videoclips(clips, method="compose", padding=-CROSSFADE)
-        final = final.set_audio(full_audio.set_duration(final.duration))
+        # --- Step 4: concatena (senza padding per mantenere sync audio/video) ---
+        # crossfadein su ogni clip fa fade-from-black senza sovrapporre i clip
+        final = concatenate_videoclips(clips, method="compose")
+        final = final.set_audio(full_audio)
 
         if final.duration < min_duration:
             content = clips[1:]
             repeats = int(min_duration / max(final.duration - INTRO_DURATION, 1)) + 1
-            extended_audio = concatenate_audioclips(
-                [_silence(INTRO_DURATION)] + tts_audio_clips * (repeats + 1)
-            )
-            final = concatenate_videoclips(clips + content * repeats, method="compose", padding=-CROSSFADE)
+            extended_audio = concatenate_audioclips(padded_audio + padded_audio[1:] * repeats)
+            final = concatenate_videoclips(clips + content * repeats, method="compose")
             final = final.subclip(0, min_duration)
             final = final.set_audio(extended_audio.set_duration(min_duration))
 
