@@ -11,7 +11,7 @@ from .image_service import fetch_background, make_intro_card, bake_subtitle
 from .tts import generate_tts
 
 MIN_SLIDE_DURATION = 3.5
-WORDS_PER_SEGMENT = 22
+WORDS_PER_SEGMENT = 18  # Slide più brevi = testo sempre leggibile per intero
 
 _STOP_WORDS = {
     "il", "la", "lo", "le", "i", "gli", "un", "una", "uno", "e", "è",
@@ -23,27 +23,40 @@ _STOP_WORDS = {
 
 
 def _split_script(script: str) -> list[str]:
-    sentences = re.split(r"(?<=[.!?])\s+", script.strip())
+    # Divide su . ! ? , ; : — così frasi lunghe con virgole creano slide separate
+    chunks = re.split(r"(?<=[.!?,;:])\s+", script.strip())
+
     segments: list[str] = []
     current: list[str] = []
     count = 0
-    for sentence in sentences:
-        words = sentence.split()
-        if count + len(words) > WORDS_PER_SEGMENT and current:
+
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        words = chunk.split()
+
+        # Chunk singolo già troppo lungo: spezzalo a forza per parola
+        if len(words) > WORDS_PER_SEGMENT:
+            if current:
+                segments.append(" ".join(current))
+                current, count = [], 0
+            for j in range(0, len(words), WORDS_PER_SEGMENT):
+                segments.append(" ".join(words[j:j + WORDS_PER_SEGMENT]))
+        elif count + len(words) > WORDS_PER_SEGMENT and current:
             segments.append(" ".join(current))
-            current = [sentence]
-            count = len(words)
+            current, count = [chunk], len(words)
         else:
-            current.append(sentence)
+            current.append(chunk)
             count += len(words)
+
     if current:
         segments.append(" ".join(current))
+
     return [s for s in segments if s.strip()]
 
 
 def _pexels_query(base_keywords: str, slide_idx: int) -> str:
-    """Query pulita per Pexels: usa le keywords base, varia per slide con un numero di pagina."""
-    # Pulisce numeri e caratteri speciali, prende le prime 3 parole
     words = [w for w in base_keywords.split() if w.isalpha()][:3]
     return " ".join(words) if words else "business"
 
@@ -79,7 +92,6 @@ async def create_faceless_video(
         clips.append(intro_clip)
 
         for i, segment in enumerate(segments):
-            # TTS audio
             tts_path = os.path.join(work_dir, f"audio_{i}.mp3")
             tts_duration = await asyncio.to_thread(
                 generate_tts, segment, voice, tts_path,
@@ -87,7 +99,6 @@ async def create_faceless_video(
             )
             clip_duration = max(tts_duration, MIN_SLIDE_DURATION)
 
-            # Sfondo (Pexels o gradiente)
             bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
             base_kw = image_keywords or topic
             await asyncio.to_thread(
@@ -95,7 +106,6 @@ async def create_faceless_video(
                 _pexels_query(base_kw, i) if pexels_api_key else None,
             )
 
-            # Sottotitoli stile YouTube baked nell'immagine
             slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
             await asyncio.to_thread(bake_subtitle, bg_path, segment, slide_path)
 
