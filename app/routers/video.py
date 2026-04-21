@@ -151,50 +151,30 @@ async def test_pexels_connection(api_key: str):
 
 @router.get("/test-elevenlabs")
 async def test_elevenlabs_connection(api_key: str, voice_id: str = "EXAVITQu4vr4xnSDxMaL"):
-    """Testa API key ElevenLabs: prima verifica account, poi prova TTS."""
-    import requests as _req
+    """Testa direttamente il TTS di ElevenLabs."""
+    import requests as _req, tempfile, os as _os
 
     def _check():
-        results = {}
-        # Prova entrambi i metodi di autenticazione
-        for method, headers in [
-            ("xi-api-key", {"xi-api-key": api_key}),
-            ("bearer", {"Authorization": f"Bearer {api_key}"}),
-        ]:
-            r = _req.get("https://api.elevenlabs.io/v1/user", headers=headers, timeout=10)
-            results[f"user_endpoint_{method}"] = {
-                "status": r.status_code,
-                "body": r.json() if r.status_code == 200 else r.text[:200],
-            }
-
-        # Prova TTS con il metodo che ha funzionato
-        working_method = None
-        for method in ["xi-api-key", "bearer"]:
-            if results.get(f"user_endpoint_{method}", {}).get("status") == 200:
-                working_method = method
-                break
-
-        if working_method:
-            import tempfile, os as _os
-            tmp = tempfile.mktemp(suffix=".mp3")
-            try:
-                h = {"xi-api-key": api_key} if working_method == "xi-api-key" else {"Authorization": f"Bearer {api_key}"}
-                r = _req.post(
-                    f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-                    headers={**h, "Content-Type": "application/json"},
-                    json={"text": "Ciao, test voce.", "model_id": "eleven_multilingual_v2",
-                          "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
-                    timeout=20,
-                )
-                results["tts"] = {"status": r.status_code, "ok": r.status_code == 200}
-            except Exception as e:
-                results["tts"] = {"error": str(e)}
-            finally:
-                if _os.path.exists(tmp):
-                    _os.remove(tmp)
-
-        results["working_auth_method"] = working_method
-        return results
+        tmp = tempfile.mktemp(suffix=".mp3")
+        try:
+            resp = _req.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                headers={"xi-api-key": api_key, "Content-Type": "application/json"},
+                json={"text": "Ciao, questo e un test.", "model_id": "eleven_multilingual_v2",
+                      "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
+                timeout=20,
+            )
+            if resp.ok:
+                with open(tmp, "wb") as f:
+                    f.write(resp.content)
+                from pydub import AudioSegment
+                dur = len(AudioSegment.from_mp3(tmp)) / 1000.0
+                return {"ok": True, "duration_seconds": round(dur, 2)}
+            else:
+                return {"ok": False, "status": resp.status_code, "error": resp.text[:400]}
+        finally:
+            if _os.path.exists(tmp):
+                _os.remove(tmp)
 
     return await asyncio.to_thread(_check)
 
