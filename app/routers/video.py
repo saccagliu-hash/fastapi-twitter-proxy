@@ -149,6 +149,24 @@ async def test_pexels_connection(api_key: str):
     return result
 
 
+@router.get("/test-elevenlabs")
+async def test_elevenlabs_connection(api_key: str, voice_id: str = "EXAVITQu4vr4xnSDxMaL"):
+    """Testa se la API key ElevenLabs funziona e genera audio di prova."""
+    import tempfile
+    import os as _os
+    from app.services.tts import _elevenlabs
+
+    tmp = tempfile.mktemp(suffix=".mp3")
+    try:
+        duration = await asyncio.to_thread(_elevenlabs, "Test voce.", api_key, voice_id, tmp)
+        return {"ok": True, "duration_seconds": round(duration, 2), "voice_id": voice_id}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    finally:
+        if _os.path.exists(tmp):
+            _os.remove(tmp)
+
+
 @router.get("/voices", response_model=VoicesResponse)
 async def get_voices():
     """Lista tutte le voci TTS disponibili con le consigliate per lingua."""
