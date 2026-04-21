@@ -22,20 +22,33 @@ _GRADIENT_THEMES = [
 
 
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
-    candidates = [
-        "/usr/share/fonts/truetype/roboto/Roboto-Bold.ttf",
+    explicit = [
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
         "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
     ]
-    for path in candidates:
+    for path in explicit:
         if os.path.exists(path):
             try:
                 return ImageFont.truetype(path, size)
             except Exception:
                 pass
-    logging.warning("Nessun font trovato, uso bitmap default (qualità bassa)")
+
+    # Fallback: cerca qualsiasi TTF Bold disponibile
+    import glob
+    for pattern in ["/usr/share/fonts/**/*Bold*.ttf", "/usr/share/fonts/**/*bold*.ttf",
+                    "/usr/share/fonts/**/*.ttf"]:
+        matches = glob.glob(pattern, recursive=True)
+        for path in matches:
+            try:
+                font = ImageFont.truetype(path, size)
+                logging.info("Font trovato: %s", path)
+                return font
+            except Exception:
+                pass
+
+    logging.warning("Nessun font TTF trovato, uso bitmap default")
     return ImageFont.load_default()
 
 
