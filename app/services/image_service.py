@@ -20,6 +20,11 @@ _GRADIENT_THEMES = [
     ((8, 35, 35), (15, 90, 90)),
 ]
 
+try:
+    _RESAMPLE = Image.Resampling.BILINEAR
+except AttributeError:
+    _RESAMPLE = Image.BILINEAR  # type: ignore[attr-defined]
+
 
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
     explicit = [
@@ -35,7 +40,6 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
             except Exception:
                 pass
 
-    # Fallback: cerca qualsiasi TTF Bold disponibile
     import glob
     for pattern in ["/usr/share/fonts/**/*Bold*.ttf", "/usr/share/fonts/**/*bold*.ttf",
                     "/usr/share/fonts/**/*.ttf"]:
@@ -127,20 +131,17 @@ def fetch_background(
     pexels_api_key: Optional[str] = None,
     search_query: Optional[str] = None,
 ) -> str:
-    """Crea o scarica l'immagine di sfondo SENZA testo (il testo viene aggiunto come overlay)."""
     fetched = False
     if pexels_api_key and search_query:
         fetched = _fetch_pexels(search_query, pexels_api_key, output_path, theme_idx)
-
     if not fetched:
         img = _make_gradient(theme_idx)
         img.save(output_path, "JPEG", quality=92)
-
     return output_path
 
 
-def make_subtitle_overlay(text: str) -> np.ndarray:
-    """Sottotitoli stile YouTube: testo giallo, outline nero, barra scura in basso."""
+def make_karaoke_overlay(text: str, spoken_words: int) -> np.ndarray:
+    """Sottotitoli karaoke: spoken=bianco, parola corrente=giallo, future=grigio."""
     overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
@@ -148,22 +149,48 @@ def make_subtitle_overlay(text: str) -> np.ndarray:
     draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 185))
 
     font = _get_font(48)
-    # width=36 chars a 48px → ~36*28px = 1008px, sicuro entro 1280px
     wrapped = textwrap.fill(text[:250], width=36)
     lines = wrapped.split("\n")[:3]
     line_h = 60
     total_h = len(lines) * line_h
     start_y = HEIGHT - bar_h + (bar_h - total_h) // 2
 
+    # Calcola larghezza spazio per il font corrente
+    try:
+        sw = (draw.textbbox((0, 0), "a b", font=font)[2]
+              - draw.textbbox((0, 0), "ab", font=font)[2])
+        space_w = max(6, sw)
+    except Exception:
+        space_w = 13
+
+    word_counter = 0
     for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=font)
-        tw = bbox[2] - bbox[0]
-        # Centra orizzontalmente con clamp per sicurezza
-        x = max(40, (WIDTH - tw) // 2)
+        line_words = line.split()
+        if not line_words:
+            continue
         y = start_y + i * line_h
-        for dx, dy in [(-3, 0), (3, 0), (0, -3), (0, 3), (-2, -2), (2, -2), (-2, 2), (2, 2)]:
-            draw.text((x + dx, y + dy), line, font=font, fill=(0, 0, 0, 255))
-        draw.text((x, y), line, font=font, fill=(255, 220, 0, 255))
+
+        word_widths = [draw.textbbox((0, 0), w, font=font)[2]
+                       - draw.textbbox((0, 0), w, font=font)[0]
+                       for w in line_words]
+        total_w = sum(word_widths) + space_w * (len(line_words) - 1)
+        x = max(30, (WIDTH - total_w) // 2)
+
+        for j, (word, ww) in enumerate(zip(line_words, word_widths)):
+            gidx = word_counter + j
+            if gidx < spoken_words:
+                color = (255, 255, 255, 255)   # già detto: bianco
+            elif gidx == spoken_words:
+                color = (255, 220, 0, 255)     # corrente: giallo
+            else:
+                color = (150, 150, 150, 210)   # futuro: grigio
+
+            for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
+                draw.text((x + dx, y + dy), word, font=font, fill=(0, 0, 0, 255))
+            draw.text((x, y), word, font=font, fill=color)
+            x += ww + space_w
+
+        word_counter += len(line_words)
 
     return np.array(overlay)
 
@@ -173,12 +200,10 @@ def make_intro_card(topic: str) -> np.ndarray:
     img = _make_gradient(0)
     draw = ImageDraw.Draw(img)
 
-    # Linea decorativa
     draw.rectangle([(WIDTH // 2 - 200, HEIGHT // 2 - 90), (WIDTH // 2 + 200, HEIGHT // 2 - 85)],
                    fill=(255, 220, 0))
 
     title_font = _get_font(72)
-    sub_font = _get_font(36)
 
     wrapped = textwrap.fill(topic.upper(), width=20)
     lines = wrapped.split("\n")[:4]
@@ -195,30 +220,8 @@ def make_intro_card(topic: str) -> np.ndarray:
             draw.text((x + dx, y + dy), line, font=title_font, fill=(0, 0, 0))
         draw.text((x, y), line, font=title_font, fill=(255, 220, 0))
 
-    # Linea decorativa in basso
     draw.rectangle([(WIDTH // 2 - 200, HEIGHT // 2 + total_h // 2 + 10),
                     (WIDTH // 2 + 200, HEIGHT // 2 + total_h // 2 + 15)],
                    fill=(255, 220, 0))
 
     return np.array(img)
-
-
-def bake_subtitle(bg_path: str, text: str, output_path: str) -> str:
-    """Applica i sottotitoli stile YouTube su un'immagine di sfondo e salva."""
-    with Image.open(bg_path) as img:
-        img = img.convert("RGBA")
-        overlay = Image.fromarray(make_subtitle_overlay(text))
-        img = Image.alpha_composite(img, overlay).convert("RGB")
-        img.save(output_path, "JPEG", quality=92)
-    return output_path
-
-
-def create_slide(
-    text: str,
-    theme_idx: int,
-    output_path: str,
-    pexels_api_key: Optional[str] = None,
-    search_query: Optional[str] = None,
-) -> str:
-    fetch_background(theme_idx, output_path, pexels_api_key, search_query)
-    return bake_subtitle(output_path, text, output_path)
