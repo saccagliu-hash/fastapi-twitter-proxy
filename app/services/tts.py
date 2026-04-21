@@ -35,9 +35,15 @@ def _gtts(text: str, voice: str, output_path: str) -> float:
 
 
 def _elevenlabs(text: str, api_key: str, voice_id: str, output_path: str) -> float:
+    # Chiavi sk_* usano Bearer token, le vecchie chiavi usano xi-api-key
+    if api_key.startswith("sk_"):
+        auth_headers = {"Authorization": f"Bearer {api_key}"}
+    else:
+        auth_headers = {"xi-api-key": api_key}
+
     resp = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-        headers={"xi-api-key": api_key, "Content-Type": "application/json"},
+        headers={**auth_headers, "Content-Type": "application/json"},
         json={
             "text": text,
             "model_id": "eleven_multilingual_v2",
