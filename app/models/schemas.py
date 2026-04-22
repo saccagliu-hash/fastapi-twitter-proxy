@@ -27,11 +27,19 @@ class VideoRequest(BaseModel):
     )
     unsplash_api_key: Optional[str] = Field(
         default=None,
-        description="Unsplash Access Key per immagini di alta qualità (priorità su Pexels se fornita). Registrati su unsplash.com/developers",
+        description="Unsplash Access Key per immagini di alta qualità. Registrati su unsplash.com/developers",
+    )
+    google_api_key: Optional[str] = Field(
+        default=None,
+        description="Google API key per Custom Search (immagini Google). Priorità massima se fornita insieme a google_cx. Attiva su console.cloud.google.com",
+    )
+    google_cx: Optional[str] = Field(
+        default=None,
+        description="Google Custom Search Engine ID (cx). Crea il motore su programmablesearchengine.google.com con Image Search abilitato",
     )
     image_keywords: Optional[str] = Field(
         default=None,
-        description="Parole chiave IN INGLESE per cercare le immagini (es: 'vending machine business'). Se non specificato usa il topic.",
+        description="Parole chiave per cercare le immagini (es: 'distributori automatici italia'). Se non specificato usa il topic.",
     )
     elevenlabs_api_key: Optional[str] = Field(
         default=None,

@@ -146,6 +146,56 @@ def _fetch_pexels(query: str, api_key: str, output_path: str, offset: int) -> bo
         return False
 
 
+def _fetch_google(query: str, api_key: str, cx: str, output_path: str, offset: int) -> bool:
+    try:
+        start = (offset % 9) + 1  # Google CSE: start 1-91 (max 100 results)
+        resp = requests.get(
+            "https://www.googleapis.com/customsearch/v1",
+            params={
+                "key": api_key,
+                "cx": cx,
+                "q": query,
+                "searchType": "image",
+                "num": 10,
+                "start": start,
+                "imgSize": "large",
+                "imgType": "photo",
+                "safe": "active",
+                "gl": "it",
+            },
+            timeout=15,
+        )
+        logging.info("Google CSE [%s] status=%s", query, resp.status_code)
+        if resp.status_code != 200:
+            logging.warning("Google CSE error: %s", resp.text[:200])
+            return False
+        items = resp.json().get("items", [])
+        if not items:
+            logging.warning("Google CSE: nessuna foto per query '%s'", query)
+            return False
+        # Prova ogni risultato finché uno è scaricabile
+        for item in items:
+            img_url = item.get("link")
+            if not img_url:
+                continue
+            try:
+                img_resp = requests.get(img_url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+                img_resp.raise_for_status()
+                with Image.open(io.BytesIO(img_resp.content)) as raw:
+                    raw = raw.convert("RGB")
+                    raw = _crop_to_16_9(raw)
+                    raw = raw.resize((WIDTH, HEIGHT), Image.LANCZOS)
+                    raw.save(output_path, "JPEG", quality=92)
+                return True
+            except Exception:
+                continue
+        logging.warning("Google CSE: nessuna immagine scaricabile per '%s'", query)
+        return False
+    except Exception as exc:
+        logging.warning("Google CSE fetch fallito per '%s': %s", query, exc)
+        return False
+
+
 def test_pexels(api_key: str) -> dict:
     try:
         resp = requests.get(
@@ -165,9 +215,13 @@ def fetch_background(
     pexels_api_key: Optional[str] = None,
     search_query: Optional[str] = None,
     unsplash_api_key: Optional[str] = None,
+    google_api_key: Optional[str] = None,
+    google_cx: Optional[str] = None,
 ) -> str:
     fetched = False
-    if unsplash_api_key and search_query:
+    if google_api_key and google_cx and search_query:
+        fetched = _fetch_google(search_query, google_api_key, google_cx, output_path, theme_idx)
+    if not fetched and unsplash_api_key and search_query:
         fetched = _fetch_unsplash(search_query, unsplash_api_key, output_path, theme_idx)
     if not fetched and pexels_api_key and search_query:
         fetched = _fetch_pexels(search_query, pexels_api_key, output_path, theme_idx)

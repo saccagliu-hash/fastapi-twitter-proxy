@@ -118,6 +118,8 @@ async def create_faceless_video(
     output_dir: str,
     pexels_api_key: Optional[str] = None,
     unsplash_api_key: Optional[str] = None,
+    google_api_key: Optional[str] = None,
+    google_cx: Optional[str] = None,
     image_keywords: Optional[str] = None,
     elevenlabs_api_key: Optional[str] = None,
     elevenlabs_voice_id: str = "EXAVITQu4vr4xnSDxMaL",
@@ -156,15 +158,16 @@ async def create_faceless_video(
             voice_parts.append(_silence(gap))
         voice_audio = concatenate_audioclips(voice_parts)
 
-        # --- Step 2: intro card (Unsplash/Pexels se disponibile, gradient altrimenti) ---
+        # --- Step 2: intro card (Google/Unsplash/Pexels se disponibile, gradient altrimenti) ---
         intro_path = os.path.join(work_dir, "intro.jpg")
         intro_bg_path = os.path.join(work_dir, "intro_bg.jpg")
         base_kw = image_keywords or topic
         fetched_intro = False
-        if unsplash_api_key or pexels_api_key:
+        has_any_img_key = google_api_key or unsplash_api_key or pexels_api_key
+        if has_any_img_key:
             await asyncio.to_thread(
                 fetch_background, 99, intro_bg_path, pexels_api_key,
-                _pexels_query(base_kw, 99), unsplash_api_key,
+                base_kw, unsplash_api_key, google_api_key, google_cx,
             )
             if os.path.exists(intro_bg_path):
                 await asyncio.to_thread(bake_intro_card, intro_bg_path, topic, intro_path)
@@ -180,11 +183,10 @@ async def create_faceless_video(
         for i, segment in enumerate(segments):
             bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
             base_kw = image_keywords or topic
-            has_img_key = unsplash_api_key or pexels_api_key
             await asyncio.to_thread(
                 fetch_background, i, bg_path, pexels_api_key,
-                _pexels_query(base_kw, i) if has_img_key else None,
-                unsplash_api_key,
+                base_kw if has_any_img_key else None,
+                unsplash_api_key, google_api_key, google_cx,
             )
 
             slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
