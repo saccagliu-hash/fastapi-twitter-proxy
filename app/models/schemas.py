@@ -25,9 +25,13 @@ class VideoRequest(BaseModel):
         default=None,
         description="API key Pexels per immagini di stock (opzionale)",
     )
+    unsplash_api_key: Optional[str] = Field(
+        default=None,
+        description="Unsplash Access Key per immagini di alta qualità (priorità su Pexels se fornita). Registrati su unsplash.com/developers",
+    )
     image_keywords: Optional[str] = Field(
         default=None,
-        description="Parole chiave IN INGLESE per cercare le immagini su Pexels (es: 'vending machine business'). Se non specificato usa il topic.",
+        description="Parole chiave IN INGLESE per cercare le immagini (es: 'vending machine business'). Se non specificato usa il topic.",
     )
     elevenlabs_api_key: Optional[str] = Field(
         default=None,

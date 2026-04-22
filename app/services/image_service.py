@@ -84,6 +84,37 @@ def _crop_to_16_9(img: Image.Image) -> Image.Image:
     return img
 
 
+def _fetch_unsplash(query: str, api_key: str, output_path: str, offset: int) -> bool:
+    try:
+        resp = requests.get(
+            "https://api.unsplash.com/search/photos",
+            headers={"Authorization": f"Client-ID {api_key}"},
+            params={"query": query, "per_page": 20, "page": (offset // 20) + 1, "orientation": "landscape"},
+            timeout=15,
+        )
+        logging.info("Unsplash [%s] status=%s", query, resp.status_code)
+        if resp.status_code != 200:
+            logging.warning("Unsplash error body: %s", resp.text[:200])
+            return False
+        results = resp.json().get("results", [])
+        if not results:
+            logging.warning("Unsplash: nessuna foto per query '%s'", query)
+            return False
+        photo = results[offset % len(results)]
+        img_url = photo["urls"].get("regular") or photo["urls"].get("full")
+        img_resp = requests.get(img_url, timeout=20)
+        img_resp.raise_for_status()
+        with Image.open(io.BytesIO(img_resp.content)) as raw:
+            raw = raw.convert("RGB")
+            raw = _crop_to_16_9(raw)
+            raw = raw.resize((WIDTH, HEIGHT), Image.LANCZOS)
+            raw.save(output_path, "JPEG", quality=92)
+        return True
+    except Exception as exc:
+        logging.warning("Unsplash fetch fallito per '%s': %s", query, exc)
+        return False
+
+
 def _fetch_pexels(query: str, api_key: str, output_path: str, offset: int) -> bool:
     try:
         resp = requests.get(
@@ -133,9 +164,12 @@ def fetch_background(
     output_path: str,
     pexels_api_key: Optional[str] = None,
     search_query: Optional[str] = None,
+    unsplash_api_key: Optional[str] = None,
 ) -> str:
     fetched = False
-    if pexels_api_key and search_query:
+    if unsplash_api_key and search_query:
+        fetched = _fetch_unsplash(search_query, unsplash_api_key, output_path, theme_idx)
+    if not fetched and pexels_api_key and search_query:
         fetched = _fetch_pexels(search_query, pexels_api_key, output_path, theme_idx)
     if not fetched:
         img = _make_gradient(theme_idx)
