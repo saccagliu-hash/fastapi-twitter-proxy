@@ -164,28 +164,29 @@ async def create_faceless_video(
     try:
         segments = _split_script(script)
 
-        # --- Step 1: TTS unico per tutto lo script → voce fluente ---
-        narration_path = os.path.join(work_dir, "narration.mp3")
-        narration_dur = await asyncio.to_thread(
-            generate_tts, script, voice, narration_path,
-            elevenlabs_api_key, elevenlabs_voice_id,
-        )
+        # --- Step 1: TTS per ogni segmento → durata esatta per sync karaoke ---
+        tts_paths: list[str] = []
+        clip_durations: list[float] = []
+        for i, segment in enumerate(segments):
+            tts_path = os.path.join(work_dir, f"audio_{i}.mp3")
+            tts_dur = await asyncio.to_thread(
+                generate_tts, segment, voice, tts_path,
+                elevenlabs_api_key, elevenlabs_voice_id,
+            )
+            clip_durations.append(max(tts_dur, MIN_SLIDE_DURATION))
+            tts_paths.append(tts_path)
 
-        # Durate slide proporzionali al word count (proxy del tempo parlato)
-        seg_words = [len(seg.split()) for seg in segments]
-        total_words = max(sum(seg_words), 1)
-        clip_durations = [
-            max(narration_dur * w / total_words, MIN_SLIDE_DURATION)
-            for w in seg_words
-        ]
-
-        # Traccia voce: silenzio intro + narrazione + padding se serve
-        content_dur = sum(clip_durations)
-        voice_parts: list = [_silence(INTRO_DURATION), AudioFileClip(narration_path)]
-        gap = content_dur - narration_dur
-        if gap > 0.1:
-            voice_parts.append(_silence(gap))
-        voice_audio = concatenate_audioclips(voice_parts)
+        # Traccia audio: silenzio intro + ogni segmento paddato alla durata della slide
+        # → durate video e audio identiche, nessun taglio; hard cut tra segmenti (no pop)
+        padded_audio: list = [_silence(INTRO_DURATION)]
+        for i, tts_path in enumerate(tts_paths):
+            tts_clip = AudioFileClip(tts_path)
+            gap = clip_durations[i] - tts_clip.duration
+            if gap > 0.05:
+                padded_audio.append(concatenate_audioclips([tts_clip, _silence(gap)]))
+            else:
+                padded_audio.append(tts_clip)
+        voice_audio = concatenate_audioclips(padded_audio)
 
         # --- Step 2: intro card ---
         intro_path = os.path.join(work_dir, "intro.jpg")
@@ -224,9 +225,8 @@ async def create_faceless_video(
         if final.duration < min_duration:
             content = clips[1:]
             repeats = int(min_duration / max(final.duration - INTRO_DURATION, 1)) + 1
-            narration_clip = AudioFileClip(narration_path)
             ext_voice = concatenate_audioclips(
-                [_silence(INTRO_DURATION)] + [narration_clip] * (repeats + 1)
+                [_silence(INTRO_DURATION)] + padded_audio[1:] * (repeats + 1)
             )
             final = concatenate_videoclips(clips + content * repeats, method="compose")
             final = final.subclip(0, min_duration)
