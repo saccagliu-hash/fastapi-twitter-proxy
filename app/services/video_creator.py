@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import os
 import re
 import shutil
@@ -10,6 +11,7 @@ from moviepy.audio.AudioClip import AudioArrayClip
 from moviepy.editor import (
     AudioFileClip,
     ImageClip,
+    VideoClip,
     concatenate_audioclips,
     concatenate_videoclips,
 )
@@ -23,8 +25,8 @@ WORDS_PER_SEGMENT = 18
 MIN_SEGMENT_WORDS = 5
 
 INTRO_DURATION = 3.0
-MAX_KARAOKE_STEPS = 12   # un frame per parola, max 12
-SLIDE_FADE = 0.45        # fade-in all'inizio di ogni slide
+MAX_KARAOKE_STEPS = 8    # max step karaoke per slide
+SLIDE_FADE = 0.4         # fade-in all'inizio di ogni slide
 
 
 # ---------------------------------------------------------------------------
@@ -107,30 +109,34 @@ def _silence(duration: float, fps: int = 44100) -> AudioArrayClip:
 
 
 # ---------------------------------------------------------------------------
-# Karaoke frame pre-rendering
+# Karaoke frame pre-rendering  +  lazy VideoClip
 # ---------------------------------------------------------------------------
 
 def _karaoke_frames(bg_path: str, text: str, n_steps: int,
                     work_dir: str, slide_idx: int) -> list[str]:
-    """Pre-genera n_steps JPEG: un frame per ogni stato karaoke."""
+    """Pre-genera n_steps JPEG su disco (uno per stato karaoke)."""
     words = text.split()
     n_words = len(words)
     paths: list[str] = []
     for step in range(n_steps):
-        # spoken va da 0 (tutto grigio) a n_words (tutto bianco)
         spoken = round(n_words * step / max(n_steps - 1, 1))
         spoken = min(spoken, n_words)
-
         with PILImage.open(bg_path) as bg:
             bg = bg.convert("RGBA")
         ov = PILImage.fromarray(make_karaoke_overlay(text, spoken))
         frame = PILImage.alpha_composite(bg, ov).convert("RGB")
-
         out = os.path.join(work_dir, f"kb_{slide_idx}_{step}.jpg")
         frame.save(out, "JPEG", quality=92)
         paths.append(out)
-
     return paths
+
+
+def _lazy_frame(paths: list[str], n_steps: int, dur: float, t: float) -> np.ndarray:
+    """Legge dal disco solo il JPEG necessario per il frame t.
+    ~3 MB di RAM per frame invece di n_steps × 3 MB (evita OOM su Railway)."""
+    step = min(int(t / max(dur, 0.001) * n_steps), n_steps - 1)
+    with PILImage.open(paths[step]) as img:
+        return np.array(img.convert("RGB"))
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +193,7 @@ async def create_faceless_video(
         intro_clip = ImageClip(intro_path).set_duration(INTRO_DURATION).crossfadein(0.5)
         clips = [intro_clip]
 
-        # --- Step 3: slide karaoke (ImageClip statici, niente Ken Burns) ---
+        # --- Step 3: slide karaoke (VideoClip lazy — carica 1 JPEG per frame) ---
         for i, segment in enumerate(segments):
             bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
             base_kw = image_keywords or topic
@@ -196,17 +202,15 @@ async def create_faceless_video(
                 _pexels_query(base_kw, i) if pexels_api_key else None,
             )
 
-            # Un frame karaoke per parola (max MAX_KARAOKE_STEPS)
             n_steps = max(1, min(len(segment.split()), MAX_KARAOKE_STEPS))
             karaoke_paths = await asyncio.to_thread(
                 _karaoke_frames, bg_path, segment, n_steps, work_dir, i
             )
 
-            step_dur = clip_durations[i] / n_steps
-            micro_clips = [ImageClip(p).set_duration(step_dur) for p in karaoke_paths]
-            slide_clip = concatenate_videoclips(micro_clips, method="compose")
-            # Fade-in all'inizio di ogni slide (transizione pulita tra immagini diverse)
-            slide_clip = slide_clip.crossfadein(SLIDE_FADE)
+            dur = clip_durations[i]
+            # functools.partial evita il bug di closure nei loop
+            make_fn = functools.partial(_lazy_frame, karaoke_paths, n_steps, dur)
+            slide_clip = VideoClip(make_fn, duration=dur).set_fps(24).fadein(SLIDE_FADE)
             clips.append(slide_clip)
 
         if len(clips) <= 1:
