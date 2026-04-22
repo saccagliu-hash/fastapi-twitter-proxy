@@ -236,3 +236,34 @@ def make_intro_card(topic: str) -> np.ndarray:
                    fill=(255, 220, 0))
 
     return np.array(img)
+
+
+def bake_subtitle(bg_path: str, text: str, output_path: str) -> str:
+    """Sottotitoli gialli su barra scura — testo sempre visibile, nessun effetto karaoke."""
+    overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    bar_h = 210
+    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 200))
+
+    font = _get_font(52)
+    wrapped = textwrap.fill(text[:250], width=32)
+    lines = wrapped.split("\n")[:3]
+    line_h = 68
+    total_h = len(lines) * line_h
+    start_y = HEIGHT - bar_h + (bar_h - total_h) // 2 + 4
+
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        tw = bbox[2] - bbox[0]
+        x = max(30, (WIDTH - tw) // 2)
+        y = start_y + i * line_h
+        for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
+            draw.text((x + dx, y + dy), line, font=font, fill=(0, 0, 0, 220))
+        draw.text((x, y), line, font=font, fill=(255, 220, 0, 255))
+
+    with Image.open(bg_path) as img:
+        img = img.convert("RGBA")
+        img = Image.alpha_composite(img, overlay).convert("RGB")
+        img.save(output_path, "JPEG", quality=92)
+    return output_path

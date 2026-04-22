@@ -10,14 +10,13 @@ import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
 from moviepy.editor import (
     AudioFileClip,
-    ImageClip,
     VideoClip,
     concatenate_audioclips,
     concatenate_videoclips,
 )
 from PIL import Image as PILImage
 
-from .image_service import fetch_background, make_intro_card, make_karaoke_overlay
+from .image_service import fetch_background, make_intro_card, bake_subtitle
 from .tts import generate_tts
 
 MIN_SLIDE_DURATION = 2.0
@@ -25,8 +24,7 @@ WORDS_PER_SEGMENT = 18
 MIN_SEGMENT_WORDS = 5
 
 INTRO_DURATION = 3.0
-MAX_KARAOKE_STEPS = 8    # max step karaoke per slide
-SLIDE_FADE = 0.4         # fade-in all'inizio di ogni slide
+SLIDE_FADE = 0.4
 
 
 # ---------------------------------------------------------------------------
@@ -99,43 +97,13 @@ def _pexels_query(base_keywords: str, slide_idx: int) -> str:
     return " ".join(words) if words else "business"
 
 
-# ---------------------------------------------------------------------------
-# Audio helpers
-# ---------------------------------------------------------------------------
-
 def _silence(duration: float, fps: int = 44100) -> AudioArrayClip:
     samples = np.zeros((max(1, int(fps * duration)), 2), dtype=np.float32)
     return AudioArrayClip(samples, fps=fps)
 
 
-# ---------------------------------------------------------------------------
-# Karaoke frame pre-rendering  +  lazy VideoClip
-# ---------------------------------------------------------------------------
-
-def _karaoke_frames(bg_path: str, text: str, n_steps: int,
-                    work_dir: str, slide_idx: int) -> list[str]:
-    """Pre-genera n_steps JPEG su disco (uno per stato karaoke)."""
-    words = text.split()
-    n_words = len(words)
-    paths: list[str] = []
-    for step in range(n_steps):
-        spoken = round(n_words * step / max(n_steps - 1, 1))
-        spoken = min(spoken, n_words)
-        with PILImage.open(bg_path) as bg:
-            bg = bg.convert("RGBA")
-        ov = PILImage.fromarray(make_karaoke_overlay(text, spoken))
-        frame = PILImage.alpha_composite(bg, ov).convert("RGB")
-        out = os.path.join(work_dir, f"kb_{slide_idx}_{step}.jpg")
-        frame.save(out, "JPEG", quality=92)
-        paths.append(out)
-    return paths
-
-
-def _lazy_frame(paths: list[str], n_steps: int, dur: float, t: float) -> np.ndarray:
-    """Legge dal disco solo il JPEG necessario per il frame t.
-    ~3 MB di RAM per frame invece di n_steps × 3 MB (evita OOM su Railway)."""
-    step = min(int(t / max(dur, 0.001) * n_steps), n_steps - 1)
-    with PILImage.open(paths[step]) as img:
+def _load_frame(path: str) -> np.ndarray:
+    with PILImage.open(path) as img:
         return np.array(img.convert("RGB"))
 
 
@@ -164,37 +132,37 @@ async def create_faceless_video(
     try:
         segments = _split_script(script)
 
-        # --- Step 1: TTS per ogni segmento → durata esatta per sync karaoke ---
-        tts_paths: list[str] = []
-        clip_durations: list[float] = []
-        for i, segment in enumerate(segments):
-            tts_path = os.path.join(work_dir, f"audio_{i}.mp3")
-            tts_dur = await asyncio.to_thread(
-                generate_tts, segment, voice, tts_path,
-                elevenlabs_api_key, elevenlabs_voice_id,
-            )
-            clip_durations.append(max(tts_dur, MIN_SLIDE_DURATION))
-            tts_paths.append(tts_path)
+        # --- Step 1: TTS unico per tutto lo script → voce fluente e naturale ---
+        narration_path = os.path.join(work_dir, "narration.mp3")
+        narration_dur = await asyncio.to_thread(
+            generate_tts, script, voice, narration_path,
+            elevenlabs_api_key, elevenlabs_voice_id,
+        )
 
-        # Traccia audio: silenzio intro + ogni segmento paddato alla durata della slide
-        # → durate video e audio identiche, nessun taglio; hard cut tra segmenti (no pop)
-        padded_audio: list = [_silence(INTRO_DURATION)]
-        for i, tts_path in enumerate(tts_paths):
-            tts_clip = AudioFileClip(tts_path)
-            gap = clip_durations[i] - tts_clip.duration
-            if gap > 0.05:
-                padded_audio.append(concatenate_audioclips([tts_clip, _silence(gap)]))
-            else:
-                padded_audio.append(tts_clip)
-        voice_audio = concatenate_audioclips(padded_audio)
+        # Durate slide proporzionali al word count
+        seg_words = [len(seg.split()) for seg in segments]
+        total_words = max(sum(seg_words), 1)
+        clip_durations = [
+            max(narration_dur * w / total_words, MIN_SLIDE_DURATION)
+            for w in seg_words
+        ]
+
+        # Audio: silenzio intro + narrazione + eventuale padding
+        content_dur = sum(clip_durations)
+        voice_parts: list = [_silence(INTRO_DURATION), AudioFileClip(narration_path)]
+        gap = content_dur - narration_dur
+        if gap > 0.1:
+            voice_parts.append(_silence(gap))
+        voice_audio = concatenate_audioclips(voice_parts)
 
         # --- Step 2: intro card ---
         intro_path = os.path.join(work_dir, "intro.jpg")
         PILImage.fromarray(make_intro_card(topic)).save(intro_path, "JPEG", quality=92)
-        intro_clip = ImageClip(intro_path).set_duration(INTRO_DURATION).crossfadein(0.5)
+        intro_fn = functools.partial(_load_frame, intro_path)
+        intro_clip = VideoClip(lambda t: intro_fn(), duration=INTRO_DURATION).set_fps(24)
         clips = [intro_clip]
 
-        # --- Step 3: slide karaoke (VideoClip lazy — carica 1 JPEG per frame) ---
+        # --- Step 3: slide con sottotitoli gialli statici ---
         for i, segment in enumerate(segments):
             bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
             base_kw = image_keywords or topic
@@ -203,21 +171,22 @@ async def create_faceless_video(
                 _pexels_query(base_kw, i) if pexels_api_key else None,
             )
 
-            n_steps = max(1, min(len(segment.split()), MAX_KARAOKE_STEPS))
-            karaoke_paths = await asyncio.to_thread(
-                _karaoke_frames, bg_path, segment, n_steps, work_dir, i
-            )
+            slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
+            await asyncio.to_thread(bake_subtitle, bg_path, segment, slide_path)
 
             dur = clip_durations[i]
-            # functools.partial evita il bug di closure nei loop
-            make_fn = functools.partial(_lazy_frame, karaoke_paths, n_steps, dur)
-            slide_clip = VideoClip(make_fn, duration=dur).set_fps(24).fadein(SLIDE_FADE)
+            frame_fn = functools.partial(_load_frame, slide_path)
+            slide_clip = (
+                VideoClip(lambda t, f=frame_fn: f(), duration=dur)
+                .set_fps(24)
+                .fadein(SLIDE_FADE)
+            )
             clips.append(slide_clip)
 
         if len(clips) <= 1:
             return {"video_id": video_id, "status": "failed", "error": "Nessun contenuto generato"}
 
-        # --- Step 4: concatena tutto + audio ---
+        # --- Step 4: concatena + audio ---
         final = concatenate_videoclips(clips, method="compose")
         final = final.set_audio(voice_audio.set_duration(final.duration))
 
@@ -225,8 +194,9 @@ async def create_faceless_video(
         if final.duration < min_duration:
             content = clips[1:]
             repeats = int(min_duration / max(final.duration - INTRO_DURATION, 1)) + 1
+            ext_narration = AudioFileClip(narration_path)
             ext_voice = concatenate_audioclips(
-                [_silence(INTRO_DURATION)] + padded_audio[1:] * (repeats + 1)
+                [_silence(INTRO_DURATION)] + [ext_narration] * (repeats + 1)
             )
             final = concatenate_videoclips(clips + content * repeats, method="compose")
             final = final.subclip(0, min_duration)
