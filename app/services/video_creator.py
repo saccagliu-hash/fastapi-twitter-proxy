@@ -16,7 +16,7 @@ from moviepy.editor import (
 )
 from PIL import Image as PILImage
 
-from .image_service import fetch_background, make_intro_card, bake_subtitle
+from .image_service import fetch_background, make_intro_card, bake_intro_card, bake_subtitle
 from .tts import generate_tts
 
 MIN_SLIDE_DURATION = 2.0
@@ -155,9 +155,22 @@ async def create_faceless_video(
             voice_parts.append(_silence(gap))
         voice_audio = concatenate_audioclips(voice_parts)
 
-        # --- Step 2: intro card ---
+        # --- Step 2: intro card (Pexels se disponibile, gradient altrimenti) ---
         intro_path = os.path.join(work_dir, "intro.jpg")
-        PILImage.fromarray(make_intro_card(topic)).save(intro_path, "JPEG", quality=92)
+        intro_bg_path = os.path.join(work_dir, "intro_bg.jpg")
+        base_kw = image_keywords or topic
+        fetched_intro = False
+        if pexels_api_key:
+            await asyncio.to_thread(
+                fetch_background, 99, intro_bg_path, pexels_api_key,
+                _pexels_query(base_kw, 99),
+            )
+            if os.path.exists(intro_bg_path):
+                await asyncio.to_thread(bake_intro_card, intro_bg_path, topic, intro_path)
+                fetched_intro = True
+        if not fetched_intro:
+            PILImage.fromarray(make_intro_card(topic)).save(intro_path, "JPEG", quality=92)
+
         intro_fn = functools.partial(_load_frame, intro_path)
         intro_clip = VideoClip(lambda t: intro_fn(), duration=INTRO_DURATION).set_fps(24)
         clips = [intro_clip]

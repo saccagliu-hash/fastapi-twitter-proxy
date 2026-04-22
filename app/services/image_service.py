@@ -204,6 +204,56 @@ def make_karaoke_overlay(text: str, spoken_words: int) -> np.ndarray:
     return np.array(overlay)
 
 
+def bake_intro_card(bg_path: str, topic: str, output_path: str) -> str:
+    """Intro card su foto Pexels: vignette scura + box + titolo giallo centrato."""
+    with Image.open(bg_path) as bg:
+        bg = bg.convert("RGBA").resize((WIDTH, HEIGHT), Image.LANCZOS)
+
+    overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # Vignette: bordi scuri per leggibilità
+    for y in range(HEIGHT):
+        top_alpha = max(0, int(200 * (1 - y / (HEIGHT * 0.45))))
+        bot_alpha = max(0, int(220 * ((y - HEIGHT * 0.55) / (HEIGHT * 0.45))))
+        alpha = min(255, top_alpha + bot_alpha)
+        if alpha > 0:
+            draw.line([(0, y), (WIDTH, y)], fill=(0, 0, 0, alpha))
+
+    # Box semi-trasparente centrato per il titolo
+    title_font = _get_font(72)
+    wrapped = textwrap.fill(topic.upper(), width=18)
+    lines = wrapped.split("\n")[:4]
+    line_h = 86
+    total_h = len(lines) * line_h
+    mid_y = HEIGHT // 2
+    pad = 28
+    box_top = mid_y - total_h // 2 - pad
+    box_bot = mid_y + total_h // 2 + pad
+    draw.rectangle([(60, box_top), (WIDTH - 60, box_bot)], fill=(0, 0, 0, 160))
+
+    # Linee decorative gialle
+    draw.rectangle([(WIDTH // 2 - 180, box_top + 8), (WIDTH // 2 + 180, box_top + 14)],
+                   fill=(255, 220, 0))
+    draw.rectangle([(WIDTH // 2 - 180, box_bot - 14), (WIDTH // 2 + 180, box_bot - 8)],
+                   fill=(255, 220, 0))
+
+    # Testo titolo
+    start_y = mid_y - total_h // 2
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=title_font)
+        tw = bbox[2] - bbox[0]
+        x = (WIDTH - tw) // 2
+        y = start_y + i * line_h
+        for dx, dy in [(-3, 0), (3, 0), (0, -3), (0, 3)]:
+            draw.text((x + dx, y + dy), line, font=title_font, fill=(0, 0, 0, 255))
+        draw.text((x, y), line, font=title_font, fill=(255, 220, 0, 255))
+
+    result = Image.alpha_composite(bg, overlay).convert("RGB")
+    result.save(output_path, "JPEG", quality=92)
+    return output_path
+
+
 def make_intro_card(topic: str) -> np.ndarray:
     """Card di apertura con il titolo del video."""
     img = _make_gradient(0)
