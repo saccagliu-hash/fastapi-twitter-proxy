@@ -28,6 +28,11 @@ except AttributeError:
 
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
     explicit = [
+        # Noto Sans — moderna, leggibile, priorità massima
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans[wdth,wght].ttf",
+        "/usr/share/fonts/noto/NotoSans-Bold.ttf",
+        # Fallback classici
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
@@ -141,27 +146,26 @@ def fetch_background(
 
 
 def make_karaoke_overlay(text: str, spoken_words: int) -> np.ndarray:
-    """Sottotitoli karaoke: spoken=bianco, parola corrente=giallo, future=grigio."""
+    """Karaoke: spoken=bianco dimmed, corrente=giallo brillante con box, future=grigio."""
     overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    bar_h = 200
-    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 185))
+    bar_h = 210
+    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 200))
 
-    font = _get_font(48)
-    wrapped = textwrap.fill(text[:250], width=36)
+    font = _get_font(52)
+    wrapped = textwrap.fill(text[:250], width=32)
     lines = wrapped.split("\n")[:3]
-    line_h = 60
+    line_h = 68
     total_h = len(lines) * line_h
-    start_y = HEIGHT - bar_h + (bar_h - total_h) // 2
+    start_y = HEIGHT - bar_h + (bar_h - total_h) // 2 + 4
 
-    # Calcola larghezza spazio per il font corrente
     try:
         sw = (draw.textbbox((0, 0), "a b", font=font)[2]
               - draw.textbbox((0, 0), "ab", font=font)[2])
-        space_w = max(6, sw)
+        space_w = max(8, sw)
     except Exception:
-        space_w = 13
+        space_w = 15
 
     word_counter = 0
     for i, line in enumerate(lines):
@@ -179,14 +183,21 @@ def make_karaoke_overlay(text: str, spoken_words: int) -> np.ndarray:
         for j, (word, ww) in enumerate(zip(line_words, word_widths)):
             gidx = word_counter + j
             if gidx < spoken_words:
-                color = (255, 255, 255, 255)   # già detto: bianco
+                color = (210, 210, 210, 220)   # già detto: bianco dimmed
             elif gidx == spoken_words:
-                color = (255, 220, 0, 255)     # corrente: giallo
+                # parola corrente: box giallo + testo nero per massimo contrasto
+                pad = 6
+                draw.rounded_rectangle(
+                    [(x - pad, y - 2), (x + ww + pad, y + line_h - 10)],
+                    radius=6, fill=(255, 220, 0, 240),
+                )
+                color = (20, 20, 20, 255)      # testo scuro sul box giallo
             else:
-                color = (150, 150, 150, 210)   # futuro: grigio
+                color = (120, 120, 120, 180)   # futuro: grigio scuro
 
-            for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
-                draw.text((x + dx, y + dy), word, font=font, fill=(0, 0, 0, 255))
+            if gidx != spoken_words:
+                for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
+                    draw.text((x + dx, y + dy), word, font=font, fill=(0, 0, 0, 200))
             draw.text((x, y), word, font=font, fill=color)
             x += ww + space_w
 
