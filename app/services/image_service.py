@@ -28,11 +28,9 @@ except AttributeError:
 
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
     explicit = [
-        # Noto Sans — moderna, leggibile, priorità massima
-        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans[wdth,wght].ttf",
-        "/usr/share/fonts/noto/NotoSans-Bold.ttf",
-        # Fallback classici
+        # Montserrat Bold — inclusa nel repo, priorità massima
+        os.path.join(os.path.dirname(__file__), "..", "fonts", "Montserrat-Bold.ttf"),
+        # Fallback di sistema
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
