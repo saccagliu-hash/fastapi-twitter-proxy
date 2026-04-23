@@ -53,6 +53,20 @@ class VideoRequest(BaseModel):
         default="EXAVITQu4vr4xnSDxMaL",
         description="Voice ID ElevenLabs. Default: Bella (ottima per italiano). Vedi elevenlabs.io/voice-library",
     )
+    use_video_clips: bool = Field(
+        default=False,
+        description="Usa clip video Pexels invece di foto statiche (richiede pexels_api_key). Più dinamico e coinvolgente.",
+    )
+    background_music_url: Optional[str] = Field(
+        default=None,
+        description="URL diretto a un file MP3 royalty-free da mixare in sottofondo (es. da pixabay.com/music). Volume consigliato: molto basso.",
+    )
+    music_volume: float = Field(
+        default=0.07,
+        ge=0.01,
+        le=0.5,
+        description="Volume della musica di sottofondo (0.01=quasi silenzio, 0.5=metà volume). Default: 0.07",
+    )
     min_duration: float = Field(
         default=50.0,
         ge=10.0,

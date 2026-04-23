@@ -6,17 +6,24 @@ import shutil
 import uuid
 from typing import Optional
 
+import requests as _requests
 import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
 from moviepy.editor import (
     AudioFileClip,
+    CompositeVideoClip,
+    ImageClip,
     VideoClip,
+    VideoFileClip,
     concatenate_audioclips,
     concatenate_videoclips,
 )
 from PIL import Image as PILImage
 
-from .image_service import fetch_background, make_intro_card, bake_intro_card, bake_subtitle
+from .image_service import (
+    fetch_background, make_intro_card, bake_intro_card, bake_subtitle,
+    make_subtitle_overlay, _fetch_pexels_video,
+)
 from .tts import generate_tts
 
 MIN_SLIDE_DURATION = 3.0
@@ -153,6 +160,9 @@ async def create_faceless_video(
     google_cx: Optional[str] = None,
     openai_api_key: Optional[str] = None,
     image_keywords: Optional[str] = None,
+    use_video_clips: bool = False,
+    background_music_url: Optional[str] = None,
+    music_volume: float = 0.07,
     elevenlabs_api_key: Optional[str] = None,
     elevenlabs_voice_id: str = "EXAVITQu4vr4xnSDxMaL",
     min_duration: float = 50.0,
@@ -214,25 +224,45 @@ async def create_faceless_video(
 
         # --- Step 3: slide con sottotitoli gialli statici ---
         for i, segment in enumerate(segments):
-            bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
             base_kw = image_keywords or topic
             slide_q = _slide_query(base_kw, segment, i) if has_any_img_key else None
-            await asyncio.to_thread(
-                fetch_background, i, bg_path, pexels_api_key,
-                slide_q, unsplash_api_key, google_api_key, google_cx,
-                openai_api_key, segment,
-            )
-
-            slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
-            await asyncio.to_thread(bake_subtitle, bg_path, segment, slide_path)
-
             dur = clip_durations[i]
-            frame_fn = functools.partial(_load_frame, slide_path)
-            slide_clip = (
-                VideoClip(lambda t, f=frame_fn: f(), duration=dur)
-                .set_fps(24)
-                .fadein(SLIDE_FADE)
-            )
+
+            # Prova video clip Pexels se richiesto
+            used_video = False
+            if use_video_clips and pexels_api_key and slide_q:
+                video_path = os.path.join(work_dir, f"clip_{i}.mp4")
+                used_video = await asyncio.to_thread(
+                    _fetch_pexels_video, slide_q, pexels_api_key, video_path, i
+                )
+
+            if used_video:
+                base_clip = VideoFileClip(video_path).resize((1280, 720)).set_fps(24)
+                if base_clip.duration < dur:
+                    loops = int(dur / base_clip.duration) + 2
+                    base_clip = concatenate_videoclips([base_clip] * loops).subclip(0, dur)
+                else:
+                    base_clip = base_clip.subclip(0, dur)
+                rgb_arr, mask_arr = await asyncio.to_thread(make_subtitle_overlay, segment)
+                rgb_clip = ImageClip(rgb_arr).set_duration(dur)
+                mask_clip = ImageClip(mask_arr, ismask=True).set_duration(dur)
+                sub_clip = rgb_clip.set_mask(mask_clip)
+                slide_clip = CompositeVideoClip([base_clip, sub_clip]).set_fps(24).fadein(SLIDE_FADE)
+            else:
+                bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
+                await asyncio.to_thread(
+                    fetch_background, i, bg_path, pexels_api_key,
+                    slide_q, unsplash_api_key, google_api_key, google_cx,
+                    openai_api_key, segment,
+                )
+                slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
+                await asyncio.to_thread(bake_subtitle, bg_path, segment, slide_path)
+                frame_fn = functools.partial(_load_frame, slide_path)
+                slide_clip = (
+                    VideoClip(lambda t, f=frame_fn: f(), duration=dur)
+                    .set_fps(24)
+                    .fadein(SLIDE_FADE)
+                )
             clips.append(slide_clip)
 
         if len(clips) <= 1:
@@ -253,6 +283,25 @@ async def create_faceless_video(
             final = concatenate_videoclips(clips + content * repeats, method="compose")
             final = final.subclip(0, min_duration)
             final = final.set_audio(ext_voice.set_duration(min_duration))
+
+        # --- Step 6: musica di sottofondo ---
+        if background_music_url:
+            try:
+                music_path = os.path.join(work_dir, "music.mp3")
+                music_resp = await asyncio.to_thread(
+                    lambda: _requests.get(background_music_url, timeout=30)
+                )
+                music_resp.raise_for_status()
+                with open(music_path, "wb") as f:
+                    f.write(music_resp.content)
+                music = AudioFileClip(music_path)
+                loops = int(final.duration / music.duration) + 2
+                music_loop = concatenate_audioclips([music] * loops).subclip(0, final.duration)
+                music_quiet = music_loop.volumex(music_volume)
+                from moviepy.editor import CompositeAudioClip
+                final = final.set_audio(CompositeAudioClip([final.audio, music_quiet]))
+            except Exception as exc:
+                pass  # musica opzionale, non blocca la generazione
 
         output_path = os.path.join(output_dir, f"{video_id}.mp4")
         await asyncio.to_thread(

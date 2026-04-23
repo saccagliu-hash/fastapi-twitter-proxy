@@ -233,6 +233,76 @@ def _fetch_dalle(query: str, context: str, api_key: str, output_path: str) -> bo
         return False
 
 
+def make_subtitle_overlay(text: str) -> tuple:
+    """Returns (RGB ndarray, mask ndarray) for CompositeVideoClip overlay."""
+    for font_size, wrap_width in [(52, 32), (44, 38), (38, 46)]:
+        font = _get_font(font_size)
+        wrapped = textwrap.fill(text[:300], width=wrap_width)
+        lines = wrapped.split("\n")
+        if len(lines) <= 3:
+            break
+    lines = lines[:3]
+    line_h = int(font_size * 1.3)
+
+    overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    bar_h = 210
+    draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 200))
+
+    total_h = len(lines) * line_h
+    start_y = HEIGHT - bar_h + (bar_h - total_h) // 2 + 4
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        tw = bbox[2] - bbox[0]
+        x = max(30, (WIDTH - tw) // 2)
+        y = start_y + i * line_h
+        for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
+            draw.text((x + dx, y + dy), line, font=font, fill=(0, 0, 0, 220))
+        draw.text((x, y), line, font=font, fill=(255, 220, 0, 255))
+
+    rgb = np.array(overlay.convert("RGB"))
+    mask = np.array(overlay.split()[3]).astype(float) / 255.0
+    return rgb, mask
+
+
+def _fetch_pexels_video(query: str, api_key: str, output_path: str, offset: int) -> bool:
+    try:
+        resp = requests.get(
+            "https://api.pexels.com/videos/search",
+            headers={"Authorization": api_key},
+            params={"query": query, "per_page": 10, "page": (offset // 10) + 1, "orientation": "landscape"},
+            timeout=15,
+        )
+        logging.info("Pexels Video [%s] status=%s", query, resp.status_code)
+        if resp.status_code != 200:
+            return False
+        videos = resp.json().get("videos", [])
+        if not videos:
+            logging.warning("Pexels Video: nessun video per '%s'", query)
+            return False
+        video = videos[offset % len(videos)]
+        files = video.get("video_files", [])
+        # Preferisce HD landscape, poi SD
+        candidates = sorted(
+            [f for f in files if f.get("width", 0) >= 1280],
+            key=lambda f: f.get("width", 0),
+        )
+        if not candidates:
+            candidates = sorted(files, key=lambda f: f.get("width", 0), reverse=True)
+        if not candidates:
+            return False
+        video_url = candidates[0]["link"]
+        video_resp = requests.get(video_url, timeout=60, stream=True)
+        video_resp.raise_for_status()
+        with open(output_path, "wb") as f:
+            for chunk in video_resp.iter_content(chunk_size=1024 * 1024):
+                f.write(chunk)
+        return True
+    except Exception as exc:
+        logging.warning("Pexels Video fetch fallito per '%s': %s", query, exc)
+        return False
+
+
 def test_pexels(api_key: str) -> dict:
     try:
         resp = requests.get(
