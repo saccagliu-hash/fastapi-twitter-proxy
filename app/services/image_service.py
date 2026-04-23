@@ -196,6 +196,43 @@ def _fetch_google(query: str, api_key: str, cx: str, output_path: str, offset: i
         return False
 
 
+def _fetch_dalle(query: str, context: str, api_key: str, output_path: str) -> bool:
+    try:
+        prompt = (
+            f"Professional photorealistic image, cinematic lighting, ultra high quality. "
+            f"Subject: {query}. "
+            f"No text, no watermarks, no people unless essential, wide angle shot."
+        )
+        resp = requests.post(
+            "https://api.openai.com/v1/images/generations",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": "dall-e-3",
+                "prompt": prompt,
+                "size": "1792x1024",
+                "quality": "standard",
+                "n": 1,
+            },
+            timeout=90,
+        )
+        logging.info("DALL-E status=%s", resp.status_code)
+        if resp.status_code != 200:
+            logging.warning("DALL-E error: %s", resp.text[:300])
+            return False
+        img_url = resp.json()["data"][0]["url"]
+        img_resp = requests.get(img_url, timeout=30)
+        img_resp.raise_for_status()
+        with Image.open(io.BytesIO(img_resp.content)) as raw:
+            raw = raw.convert("RGB")
+            raw = _crop_to_16_9(raw)
+            raw = raw.resize((WIDTH, HEIGHT), Image.LANCZOS)
+            raw.save(output_path, "JPEG", quality=92)
+        return True
+    except Exception as exc:
+        logging.warning("DALL-E fetch fallito: %s", exc)
+        return False
+
+
 def test_pexels(api_key: str) -> dict:
     try:
         resp = requests.get(
@@ -217,9 +254,13 @@ def fetch_background(
     unsplash_api_key: Optional[str] = None,
     google_api_key: Optional[str] = None,
     google_cx: Optional[str] = None,
+    openai_api_key: Optional[str] = None,
+    dalle_context: str = "",
 ) -> str:
     fetched = False
-    if google_api_key and google_cx and search_query:
+    if openai_api_key and search_query:
+        fetched = _fetch_dalle(search_query, dalle_context, openai_api_key, output_path)
+    if not fetched and google_api_key and google_cx and search_query:
         fetched = _fetch_google(search_query, google_api_key, google_cx, output_path, theme_idx)
     if not fetched and unsplash_api_key and search_query:
         fetched = _fetch_unsplash(search_query, unsplash_api_key, output_path, theme_idx)

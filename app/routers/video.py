@@ -94,6 +94,7 @@ async def _run_generation(job_id: str, request: VideoRequest):
             unsplash_api_key=request.unsplash_api_key,
             google_api_key=request.google_api_key,
             google_cx=request.google_cx,
+            openai_api_key=request.openai_api_key,
             image_keywords=request.image_keywords,
             elevenlabs_api_key=request.elevenlabs_api_key,
             elevenlabs_voice_id=request.elevenlabs_voice_id,

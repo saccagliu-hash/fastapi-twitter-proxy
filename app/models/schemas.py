@@ -29,9 +29,13 @@ class VideoRequest(BaseModel):
         default=None,
         description="Unsplash Access Key per immagini di alta qualità. Registrati su unsplash.com/developers",
     )
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key per immagini DALL-E 3 (priorità assoluta). ~$0.04/immagine. Ottieni la chiave su platform.openai.com",
+    )
     google_api_key: Optional[str] = Field(
         default=None,
-        description="Google API key per Custom Search (immagini Google). Priorità massima se fornita insieme a google_cx. Attiva su console.cloud.google.com",
+        description="Google API key per Custom Search (immagini Google). Attiva su console.cloud.google.com",
     )
     google_cx: Optional[str] = Field(
         default=None,
