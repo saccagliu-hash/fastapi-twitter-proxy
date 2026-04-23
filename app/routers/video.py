@@ -13,7 +13,7 @@ from app.models.schemas import (
     VoiceInfo,
     VoicesResponse,
 )
-from app.services.image_service import test_pexels
+from app.services.image_service import test_pexels, _fetch_google
 from app.services.tts import RECOMMENDED_VOICES, list_voices
 from app.services.video_creator import create_faceless_video
 
@@ -150,6 +150,24 @@ async def test_pexels_connection(api_key: str):
     """Testa se la API key Pexels funziona correttamente."""
     result = await asyncio.to_thread(test_pexels, api_key)
     return result
+
+
+@router.get("/test-google")
+async def test_google_connection(api_key: str, cx: str, query: str = "distributori automatici italia"):
+    """Testa Google Custom Search API scaricando una foto di prova."""
+    import tempfile, os as _os
+
+    def _check():
+        tmp = tempfile.mktemp(suffix=".jpg")
+        try:
+            ok = _fetch_google(query, api_key, cx, tmp, 0)
+            size = _os.path.getsize(tmp) if ok and _os.path.exists(tmp) else 0
+            return {"ok": ok, "file_size_bytes": size, "query": query}
+        finally:
+            if _os.path.exists(tmp):
+                _os.remove(tmp)
+
+    return await asyncio.to_thread(_check)
 
 
 @router.get("/test-elevenlabs")
