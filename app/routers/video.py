@@ -154,18 +154,37 @@ async def test_pexels_connection(api_key: str):
 
 @router.get("/test-google")
 async def test_google_connection(api_key: str, cx: str, query: str = "distributori automatici italia"):
-    """Testa Google Custom Search API scaricando una foto di prova."""
-    import tempfile, os as _os
+    """Testa Google Custom Search API e mostra la risposta grezza per diagnostica."""
+    import requests as _req
 
     def _check():
-        tmp = tempfile.mktemp(suffix=".jpg")
         try:
-            ok = _fetch_google(query, api_key, cx, tmp, 0)
-            size = _os.path.getsize(tmp) if ok and _os.path.exists(tmp) else 0
-            return {"ok": ok, "file_size_bytes": size, "query": query}
-        finally:
-            if _os.path.exists(tmp):
-                _os.remove(tmp)
+            resp = _req.get(
+                "https://www.googleapis.com/customsearch/v1",
+                params={
+                    "key": api_key,
+                    "cx": cx,
+                    "q": query,
+                    "searchType": "image",
+                    "num": 3,
+                    "imgSize": "large",
+                    "gl": "it",
+                },
+                timeout=15,
+            )
+            data = resp.json()
+            if resp.status_code != 200:
+                return {"ok": False, "status_code": resp.status_code, "error": data}
+            items = data.get("items", [])
+            return {
+                "ok": bool(items),
+                "status_code": resp.status_code,
+                "total_results": data.get("searchInformation", {}).get("totalResults"),
+                "items_returned": len(items),
+                "first_image_url": items[0]["link"] if items else None,
+            }
+        except Exception as exc:
+            return {"ok": False, "exception": str(exc)}
 
     return await asyncio.to_thread(_check)
 
