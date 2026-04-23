@@ -375,17 +375,22 @@ def make_intro_card(topic: str) -> np.ndarray:
 
 
 def bake_subtitle(bg_path: str, text: str, output_path: str) -> str:
-    """Sottotitoli gialli su barra scura — testo sempre visibile, nessun effetto karaoke."""
+    """Sottotitoli gialli su barra scura — font auto-ridotto se il testo non ci sta in 3 righe."""
     overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
     bar_h = 210
     draw.rectangle([(0, HEIGHT - bar_h), (WIDTH, HEIGHT)], fill=(0, 0, 0, 200))
 
-    font = _get_font(52)
-    wrapped = textwrap.fill(text[:250], width=32)
-    lines = wrapped.split("\n")[:3]
-    line_h = 68
+    # Auto-scale font: prova 52px, poi 44px, poi 38px finché il testo sta in 3 righe
+    for font_size, wrap_width in [(52, 32), (44, 38), (38, 46)]:
+        font = _get_font(font_size)
+        wrapped = textwrap.fill(text[:300], width=wrap_width)
+        lines = wrapped.split("\n")
+        if len(lines) <= 3:
+            break
+    lines = lines[:3]
+    line_h = int(font_size * 1.3)
     total_h = len(lines) * line_h
     start_y = HEIGHT - bar_h + (bar_h - total_h) // 2 + 4
 
