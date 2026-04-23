@@ -199,9 +199,10 @@ def _fetch_google(query: str, api_key: str, cx: str, output_path: str, offset: i
 def _fetch_dalle(query: str, context: str, api_key: str, output_path: str) -> bool:
     try:
         prompt = (
-            f"Professional photorealistic image, cinematic lighting, ultra high quality. "
+            f"Realistic stock photograph, Canon DSLR, natural lighting, sharp focus. "
             f"Subject: {query}. "
-            f"No text, no watermarks, no people unless essential, wide angle shot."
+            f"Style: photojournalism, documentary. "
+            f"No illustrations, no paintings, no CGI, no text, no watermarks."
         )
         resp = requests.post(
             "https://api.openai.com/v1/images/generations",
