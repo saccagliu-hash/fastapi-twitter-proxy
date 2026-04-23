@@ -19,7 +19,7 @@ from PIL import Image as PILImage
 from .image_service import fetch_background, make_intro_card, bake_intro_card, bake_subtitle
 from .tts import generate_tts
 
-MIN_SLIDE_DURATION = 2.0
+MIN_SLIDE_DURATION = 3.0
 WORDS_PER_SEGMENT = 18
 MIN_SEGMENT_WORDS = 5
 
@@ -173,12 +173,12 @@ async def create_faceless_video(
             elevenlabs_api_key, elevenlabs_voice_id,
         )
 
-        # Durate slide proporzionali al word count
-        seg_words = [len(seg.split()) for seg in segments]
-        total_words = max(sum(seg_words), 1)
+        # Durate slide proporzionali ai caratteri (più accurato per testi con numeri)
+        seg_chars = [len(seg) for seg in segments]
+        total_chars = max(sum(seg_chars), 1)
         clip_durations = [
-            max(narration_dur * w / total_words, MIN_SLIDE_DURATION)
-            for w in seg_words
+            max(narration_dur * c / total_chars, MIN_SLIDE_DURATION)
+            for c in seg_chars
         ]
 
         # Audio: silenzio intro + narrazione + eventuale padding
