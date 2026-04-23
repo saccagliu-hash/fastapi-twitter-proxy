@@ -92,9 +92,32 @@ def _split_script(script: str) -> list[str]:
     return result
 
 
-def _pexels_query(base_keywords: str, slide_idx: int) -> str:
-    words = [w for w in base_keywords.split() if w.isalpha()][:3]
-    return " ".join(words) if words else "business"
+_STOP_WORDS = {
+    'il', 'la', 'lo', 'i', 'gli', 'le', 'un', 'una', 'uno', 'di', 'da', 'in',
+    'con', 'su', 'per', 'tra', 'fra', 'che', 'non', 'e', 'a', 'o', 'ma', 'si',
+    'del', 'della', 'dei', 'degli', 'delle', 'al', 'alla', 'ai', 'agli', 'alle',
+    'nel', 'nella', 'nei', 'negli', 'nelle', 'sul', 'sulla', 'sui', 'sugli',
+    'dal', 'dalla', 'dai', 'dagli', 'dalle', 'sono', 'siamo', 'questo', 'questa',
+    'questi', 'queste', 'anche', 'come', 'più', 'molto', 'tutti', 'tutto', 'ogni',
+    'quando', 'dove', 'chi', 'cosa', 'quale', 'quali', 'può', 'deve', 'hanno',
+    'viene', 'essere', 'avere', 'fare', 'the', 'and', 'or', 'for', 'with', 'from',
+    'that', 'this', 'are', 'was', 'were', 'will', 'have', 'has', 'been',
+}
+
+
+def _slide_query(base_keywords: str, segment: str) -> str:
+    """Build a per-slide query: base keywords + most relevant word from segment."""
+    base = [w for w in base_keywords.split() if w.isalpha()][:4]
+    base_lower = {w.lower() for w in base}
+    seg_words = [
+        w.strip(".,;:!?").lower() for w in segment.split()
+        if w.isalpha() and w.lower() not in _STOP_WORDS and len(w) > 4
+    ]
+    for w in seg_words:
+        if w not in base_lower:
+            base.append(w)
+            break
+    return " ".join(base) if base else "vending machine"
 
 
 def _silence(duration: float, fps: int = 44100) -> AudioArrayClip:
@@ -183,10 +206,10 @@ async def create_faceless_video(
         for i, segment in enumerate(segments):
             bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
             base_kw = image_keywords or topic
+            slide_q = _slide_query(base_kw, segment) if has_any_img_key else None
             await asyncio.to_thread(
                 fetch_background, i, bg_path, pexels_api_key,
-                base_kw if has_any_img_key else None,
-                unsplash_api_key, google_api_key, google_cx,
+                slide_q, unsplash_api_key, google_api_key, google_cx,
             )
 
             slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
