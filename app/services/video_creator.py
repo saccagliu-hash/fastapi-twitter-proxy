@@ -105,9 +105,17 @@ _STOP_WORDS = {
 }
 
 
-def _slide_query(base_keywords: str, segment: str) -> str:
-    """Build a per-slide query: base keywords + most relevant word from segment."""
-    base = [w for w in base_keywords.split() if w.isalpha()][:4]
+def _parse_keyword_sets(image_keywords: str) -> list[str]:
+    """Split comma-separated keyword sets, e.g. 'vending machine, coffee office, snack drink'."""
+    sets = [k.strip() for k in image_keywords.split(",") if k.strip()]
+    return sets if sets else [image_keywords]
+
+
+def _slide_query(base_keywords: str, segment: str, slide_idx: int) -> str:
+    """Pick a keyword set (cycling through the list) then add a relevant word from the segment."""
+    keyword_sets = _parse_keyword_sets(base_keywords)
+    base_str = keyword_sets[slide_idx % len(keyword_sets)]
+    base = [w for w in base_str.split() if w.isalpha()][:4]
     base_lower = {w.lower() for w in base}
     seg_words = [
         w.strip(".,;:!?").lower() for w in segment.split()
@@ -206,7 +214,7 @@ async def create_faceless_video(
         for i, segment in enumerate(segments):
             bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
             base_kw = image_keywords or topic
-            slide_q = _slide_query(base_kw, segment) if has_any_img_key else None
+            slide_q = _slide_query(base_kw, segment, i) if has_any_img_key else None
             await asyncio.to_thread(
                 fetch_background, i, bg_path, pexels_api_key,
                 slide_q, unsplash_api_key, google_api_key, google_cx,

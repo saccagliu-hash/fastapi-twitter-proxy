@@ -39,7 +39,7 @@ class VideoRequest(BaseModel):
     )
     image_keywords: Optional[str] = Field(
         default=None,
-        description="Parole chiave per cercare le immagini (es: 'distributori automatici italia'). Se non specificato usa il topic.",
+        description="Parole chiave per cercare le immagini. Puoi passare più set separati da virgola per variare le immagini tra slide (es: 'vending machine coffee, automatic coffee machine, snack drink office'). Se non specificato usa il topic.",
     )
     elevenlabs_api_key: Optional[str] = Field(
         default=None,
