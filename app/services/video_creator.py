@@ -6,6 +6,11 @@ import shutil
 import uuid
 from typing import Optional
 
+import PIL.Image
+# moviepy 1.0.3 usa ANTIALIAS internamente, rimosso in Pillow 10+
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+
 import requests as _requests
 import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
