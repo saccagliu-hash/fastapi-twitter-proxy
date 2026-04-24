@@ -232,42 +232,41 @@ async def create_faceless_video(
             base_kw = image_keywords or topic
             slide_q = _slide_query(base_kw, segment, i) if has_any_img_key else None
             dur = clip_durations[i]
+            bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
 
-            # Prova video clip Pexels se richiesto
+            # Prova video clip Pexels: estrae un frame come immagine (memory safe)
             used_video = False
             if use_video_clips and pexels_api_key and slide_q:
                 video_path = os.path.join(work_dir, f"clip_{i}.mp4")
                 used_video = await asyncio.to_thread(
                     _fetch_pexels_video, slide_q, pexels_api_key, video_path, i
                 )
+                if used_video:
+                    def _extract_frame(vpath, bpath):
+                        vc = VideoFileClip(vpath)
+                        t = min(1.0, vc.duration * 0.3)
+                        frame = vc.get_frame(t)
+                        vc.close()
+                        PILImage.fromarray(frame.astype("uint8")).resize(
+                            (1280, 720), PILImage.LANCZOS
+                        ).save(bpath, "JPEG", quality=92)
+                    await asyncio.to_thread(_extract_frame, video_path, bg_path)
 
-            if used_video:
-                base_clip = VideoFileClip(video_path).resize((1280, 720)).set_fps(24)
-                if base_clip.duration < dur:
-                    loops = int(dur / base_clip.duration) + 2
-                    base_clip = concatenate_videoclips([base_clip] * loops).subclip(0, dur)
-                else:
-                    base_clip = base_clip.subclip(0, dur)
-                rgb_arr, mask_arr = await asyncio.to_thread(make_subtitle_overlay, segment)
-                rgb_clip = ImageClip(rgb_arr).set_duration(dur)
-                mask_clip = ImageClip(mask_arr, ismask=True).set_duration(dur)
-                sub_clip = rgb_clip.set_mask(mask_clip)
-                slide_clip = CompositeVideoClip([base_clip, sub_clip]).set_fps(24).fadein(SLIDE_FADE)
-            else:
-                bg_path = os.path.join(work_dir, f"bg_{i}.jpg")
+            if not used_video:
                 await asyncio.to_thread(
                     fetch_background, i, bg_path, pexels_api_key,
                     slide_q, unsplash_api_key, google_api_key, google_cx,
                     openai_api_key, segment,
                 )
-                slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
-                await asyncio.to_thread(bake_subtitle, bg_path, segment, slide_path)
-                frame_fn = functools.partial(_load_frame, slide_path)
-                slide_clip = (
-                    VideoClip(lambda t, f=frame_fn: f(), duration=dur)
-                    .set_fps(24)
-                    .fadein(SLIDE_FADE)
-                )
+
+            slide_path = os.path.join(work_dir, f"slide_{i}.jpg")
+            await asyncio.to_thread(bake_subtitle, bg_path, segment, slide_path)
+            frame_fn = functools.partial(_load_frame, slide_path)
+            slide_clip = (
+                VideoClip(lambda t, f=frame_fn: f(), duration=dur)
+                .set_fps(24)
+                .fadein(SLIDE_FADE)
+            )
             clips.append(slide_clip)
 
         if len(clips) <= 1:
